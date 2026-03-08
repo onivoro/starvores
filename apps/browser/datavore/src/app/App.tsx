@@ -4,6 +4,7 @@ import Editor from '@monaco-editor/react';
 import {
   createDatavoreApi,
   DatabaseInfo,
+  QueryJsonlExportError,
   TableInfo,
   TableStructureInfo,
 } from '@onivoro/axios-datavore';
@@ -29,9 +30,59 @@ type ResultState = {
 };
 
 type DensityMode = 'comfortable' | 'compact';
+type ExportStatus = 'idle' | 'preparing' | 'streaming' | 'completed' | 'cancelled' | 'failed';
+type ExportLimitMode = 'none' | '10k' | '100k' | 'custom';
+
+type ExportState = {
+  status: ExportStatus;
+  rowCount: number;
+  bytesWritten: number;
+  filename: string;
+  partialSaved: boolean;
+  message?: string;
+};
 
 const DEFAULT_QUERY = 'SELECT * FROM table_name LIMIT 100;';
 const DENSITY_STORAGE_KEY = 'datavore-density-mode';
+const DEFAULT_EXPORT_LIMIT_MODE: ExportLimitMode = 'none';
+
+const DEFAULT_EXPORT_STATE: ExportState = {
+  status: 'idle',
+  rowCount: 0,
+  bytesWritten: 0,
+  filename: '',
+  partialSaved: false,
+};
+
+const getDefaultExportFilename = (): string => {
+  const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
+  return `query-${timestamp}.jsonl`;
+};
+
+const parseContentDispositionFilename = (contentDisposition: string | null): string | null => {
+  if (!contentDisposition) return null;
+  const match = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+  return match?.[1]?.trim() || null;
+};
+
+const triggerDownload = (blob: Blob, filename: string): void => {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
+
+const countNewlines = (text: string): number => (text.match(/\n/g) ?? []).length;
+
+const getJsonlExportErrorMessage = (errorData: QueryJsonlExportError | null, status: number): string => {
+  const message = errorData?.message;
+  if (typeof message === 'string' && message.trim()) return message;
+  return `Export request failed (HTTP ${status}).`;
+};
 
 export function App() {
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
@@ -52,12 +103,21 @@ export function App() {
   const [executing, setExecuting] = useState(false);
   const [queryId, setQueryId] = useState<string | null>(null);
   const [query, setQuery] = useState(DEFAULT_QUERY);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportFilename, setExportFilename] = useState(getDefaultExportFilename());
+  const [exportLimitMode, setExportLimitMode] = useState<ExportLimitMode>(DEFAULT_EXPORT_LIMIT_MODE);
+  const [exportCustomLimit, setExportCustomLimit] = useState('250000');
+  const [includeMetadataHeader, setIncludeMetadataHeader] = useState(false);
+  const [exportState, setExportState] = useState<ExportState>(DEFAULT_EXPORT_STATE);
   const [density, setDensity] = useState<DensityMode>(() => {
     const saved = localStorage.getItem(DENSITY_STORAGE_KEY);
     return saved === 'compact' ? 'compact' : 'comfortable';
   });
   const editorRef = useRef<any>(null);
   const tableListRef = useRef<HTMLDivElement | null>(null);
+  const exportAbortControllerRef = useRef<AbortController | null>(null);
+  const exportQueryIdRef = useRef<string | null>(null);
+  const exportCancelledByUserRef = useRef(false);
 
   const connectionKey = useMemo(() => {
     if (!dbInfo) return 'default';
@@ -102,6 +162,13 @@ export function App() {
   useEffect(() => {
     localStorage.setItem(DENSITY_STORAGE_KEY, density);
   }, [density]);
+
+  useEffect(
+    () => () => {
+      exportAbortControllerRef.current?.abort();
+    },
+    [],
+  );
 
   const selectTable = async (tableName: string) => {
     setSelectedTable(tableName);
@@ -156,6 +223,170 @@ export function App() {
     }
     return editorRef.current.getValue?.() ?? query;
   }, [query]);
+
+  const hasExecutableQuery = useMemo(() => getQueryToExecute().trim().length > 0, [getQueryToExecute]);
+  const exportInProgress = exportState.status === 'preparing' || exportState.status === 'streaming';
+
+  const getExportLimit = (): number | undefined => {
+    if (exportLimitMode === 'none') return undefined;
+    if (exportLimitMode === '10k') return 10_000;
+    if (exportLimitMode === '100k') return 100_000;
+    const parsed = Number(exportCustomLimit);
+    if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+    return Math.floor(parsed);
+  };
+
+  const cancelExport = useCallback(async () => {
+    const activeQueryId = exportQueryIdRef.current;
+    if (!activeQueryId) return;
+
+    exportCancelledByUserRef.current = true;
+    exportAbortControllerRef.current?.abort();
+    setExportState((current) => ({
+      ...current,
+      status: 'cancelled',
+      message: 'Cancelling export...',
+    }));
+
+    try {
+      await api.cancelQuery(activeQueryId);
+    } catch {
+      // Best effort only; local abort already stops browser stream.
+    }
+  }, []);
+
+  const startJsonlExport = useCallback(async () => {
+    if (exportInProgress) return;
+
+    const queryToExport = getQueryToExecute();
+    if (!queryToExport.trim()) {
+      setExportState({
+        ...DEFAULT_EXPORT_STATE,
+        status: 'failed',
+        filename: exportFilename,
+        message: 'Query is required before exporting.',
+      });
+      return;
+    }
+
+    const queryIdForExport = `exp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    exportQueryIdRef.current = queryIdForExport;
+    exportCancelledByUserRef.current = false;
+
+    const controller = new AbortController();
+    exportAbortControllerRef.current = controller;
+
+    setExportState({
+      status: 'preparing',
+      rowCount: 0,
+      bytesWritten: 0,
+      filename: exportFilename,
+      partialSaved: false,
+      message: 'Preparing export...',
+    });
+
+    let bytesWritten = 0;
+    let lineCount = 0;
+    let metadataLineSeen = false;
+    const textDecoder = new TextDecoder();
+    const chunks: Uint8Array[] = [];
+
+    try {
+      const response = await api.streamQueryJsonl(
+        {
+          query: queryToExport,
+          queryId: queryIdForExport,
+          limit: getExportLimit(),
+          includeMetadataHeader,
+          filename: exportFilename,
+        },
+        controller.signal,
+      );
+
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => null)) as QueryJsonlExportError | null;
+        throw new Error(getJsonlExportErrorMessage(errorData, response.status));
+      }
+
+      const filenameFromHeader = parseContentDispositionFilename(response.headers.get('content-disposition'));
+      const resolvedFilename = filenameFromHeader ?? exportFilename;
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Streaming response body is not available in this browser.');
+      }
+
+      setExportState((current) => ({
+        ...current,
+        status: 'streaming',
+        filename: resolvedFilename,
+        message: 'Streaming export...',
+      }));
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+
+        chunks.push(value);
+        bytesWritten += value.byteLength;
+
+        const chunkText = textDecoder.decode(value, { stream: true });
+        lineCount += countNewlines(chunkText);
+        if (!metadataLineSeen && includeMetadataHeader && lineCount > 0) {
+          metadataLineSeen = true;
+        }
+
+        const estimatedRows = includeMetadataHeader && metadataLineSeen ? Math.max(lineCount - 1, 0) : lineCount;
+        setExportState((current) => ({
+          ...current,
+          status: 'streaming',
+          rowCount: estimatedRows,
+          bytesWritten,
+          filename: resolvedFilename,
+          partialSaved: bytesWritten > 0,
+          message: 'Streaming export...',
+        }));
+      }
+
+      triggerDownload(new Blob(chunks, { type: 'application/x-ndjson;charset=utf-8' }), resolvedFilename);
+      setExportState((current) => ({
+        ...current,
+        status: 'completed',
+        rowCount: current.rowCount,
+        bytesWritten,
+        filename: resolvedFilename,
+        partialSaved: bytesWritten > 0,
+        message: 'Export completed.',
+      }));
+    } catch (error) {
+      if (controller.signal.aborted || exportCancelledByUserRef.current) {
+        setExportState((current) => ({
+          ...current,
+          status: 'cancelled',
+          partialSaved: bytesWritten > 0 || current.bytesWritten > 0,
+          message: bytesWritten > 0 ? 'Export cancelled. A partial file may exist.' : 'Export cancelled.',
+        }));
+      } else {
+        setExportState((current) => ({
+          ...current,
+          status: 'failed',
+          partialSaved: bytesWritten > 0 || current.bytesWritten > 0,
+          message: getErrorMessage(error, 'Export failed.'),
+        }));
+      }
+    } finally {
+      exportAbortControllerRef.current = null;
+      exportQueryIdRef.current = null;
+      exportCancelledByUserRef.current = false;
+    }
+  }, [
+    exportCustomLimit,
+    exportFilename,
+    exportInProgress,
+    exportLimitMode,
+    getQueryToExecute,
+    includeMetadataHeader,
+  ]);
 
   const executeQuery = useCallback(async () => {
     if (executing) return;
@@ -342,6 +573,16 @@ export function App() {
               >
                 Clear
               </button>
+              <button
+                className="dv-btn-ghost"
+                onClick={() => {
+                  setExportFilename(getDefaultExportFilename());
+                  setExportModalOpen(true);
+                }}
+                disabled={!hasExecutableQuery || exportInProgress}
+              >
+                Export JSONL
+              </button>
               {!executing ? (
                 <button className="dv-btn" onClick={() => void executeQuery()}>Run</button>
               ) : (
@@ -369,12 +610,90 @@ export function App() {
           </div>
           {executing && <p className="dv-state-text">Executing query...</p>}
           {resultError && <p className="dv-state-text text-danger">{resultError}</p>}
+          {exportState.status !== 'idle' && (
+            <p className={`dv-state-text ${exportState.status === 'failed' ? 'text-danger' : ''}`}>
+              Export {exportState.status} • {exportState.rowCount.toLocaleString()} rows •{' '}
+              {exportState.bytesWritten.toLocaleString()} bytes
+              {exportState.partialSaved ? ' • partial data' : ''}
+              {exportState.message ? ` • ${exportState.message}` : ''}
+            </p>
+          )}
           {result && (
             <p className="text-xs text-subtle">
               {result.rowCount.toLocaleString()} rows • {result.elapsedMs}ms
             </p>
           )}
         </section>
+
+        {exportModalOpen && (
+          <section className="dv-modal-backdrop" role="dialog" aria-modal="true" aria-label="Export JSONL">
+            <div className="dv-modal">
+              <div className="dv-section-head">
+                <h2 className="dv-section-title">Export JSONL</h2>
+                <p className="dv-section-meta">Uses selected SQL text when a selection exists.</p>
+              </div>
+
+              <label className="dv-modal-field">
+                Filename
+                <input
+                  className="dv-input"
+                  value={exportFilename}
+                  onChange={(event) => setExportFilename(event.target.value)}
+                />
+              </label>
+
+              <label className="dv-modal-field">
+                Row limit
+                <select
+                  className="dv-select"
+                  value={exportLimitMode}
+                  onChange={(event) => setExportLimitMode(event.target.value as ExportLimitMode)}
+                >
+                  <option value="none">No limit (server cap applies)</option>
+                  <option value="10k">10k</option>
+                  <option value="100k">100k</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+              {exportLimitMode === 'custom' && (
+                <label className="dv-modal-field">
+                  Custom limit
+                  <input
+                    className="dv-input"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={exportCustomLimit}
+                    onChange={(event) => setExportCustomLimit(event.target.value)}
+                  />
+                </label>
+              )}
+
+              <label className="dv-modal-check">
+                <input
+                  type="checkbox"
+                  checked={includeMetadataHeader}
+                  onChange={(event) => setIncludeMetadataHeader(event.target.checked)}
+                />
+                Include metadata header line
+              </label>
+
+              <div className="dv-modal-actions">
+                <button className="dv-btn" onClick={() => void startJsonlExport()} disabled={exportInProgress}>
+                  {exportInProgress ? 'Exporting...' : 'Start export'}
+                </button>
+                {exportInProgress && (
+                  <button className="dv-btn-danger" onClick={() => void cancelExport()}>
+                    Cancel export
+                  </button>
+                )}
+                <button className="dv-btn-ghost" onClick={() => setExportModalOpen(false)} disabled={exportInProgress}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
 
         <Tabs.Root value={activeTab} onValueChange={(v) => setActiveTab(v as 'data' | 'structure')}>
           <Tabs.List className="dv-tab-list">

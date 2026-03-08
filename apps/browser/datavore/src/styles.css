@@ -41,6 +41,11 @@
   .dv-state-error { @apply bg-danger border-danger text-white; }
   .dv-state-text { @apply text-xs text-subtle; }
   .dv-editor-shell { @apply border rounded-md overflow-hidden bg-muted; }
+  .dv-modal-backdrop { @apply fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4; }
+  .dv-modal { @apply w-full max-w-xl bg-panel border rounded-md shadow-panel p-4 space-y-3; }
+  .dv-modal-field { @apply flex flex-col gap-2 text-sm text-subtle; }
+  .dv-modal-check { @apply flex items-center gap-2 text-sm text-subtle; }
+  .dv-modal-actions { @apply flex flex-wrap gap-2; }
   .dv-table-shell { @apply border rounded-md overflow-auto; }
   .dv-table { @apply w-full text-sm border-collapse; }
   .dv-table thead { @apply bg-muted text-subtle sticky top-0 z-10; }

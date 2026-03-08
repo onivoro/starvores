@@ -24,6 +24,20 @@ export interface DatabaseInfo {
   databaseName?: string;
 }
 
+export interface QueryJsonlExportRequest {
+  query: string;
+  queryId: string;
+  limit?: number;
+  includeMetadataHeader?: boolean;
+  filename?: string;
+}
+
+export interface QueryJsonlExportError {
+  code?: string;
+  message?: string;
+  details?: unknown;
+}
+
 export class DatavoreApi {
   constructor(private readonly http: AxiosInstance) {}
 
@@ -47,8 +61,28 @@ export class DatavoreApi {
     return this.http.post<QueryResponse>('/api/query', { query, queryId });
   }
 
+  streamQueryJsonl(request: QueryJsonlExportRequest, signal?: AbortSignal): Promise<Response> {
+    return fetch(this.resolveApiPath('/api/query/export/jsonl'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+      signal,
+      credentials: 'same-origin',
+    });
+  }
+
   cancelQuery(queryId: string) {
     return this.http.post<{ cancelled: boolean }>('/api/query/cancel', { queryId });
+  }
+
+  private resolveApiPath(path: string): string {
+    const baseURL = this.http.defaults.baseURL;
+    if (!baseURL) return path;
+    try {
+      return new URL(path, baseURL).toString();
+    } catch {
+      return path;
+    }
   }
 }
 
