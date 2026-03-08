@@ -1,0 +1,71 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "strictPropertyInitialization": false,
+    "esModuleInterop": true,
+    "rootDir": ".",
+    "sourceMap": true,
+    "declaration": false,
+    "moduleResolution": "node",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "target": "es2015",
+    "module": "esnext",
+    "lib": ["es2020", "dom"],
+    "skipLibCheck": true,
+    "skipDefaultLibCheck": true,
+    "strictNullChecks": true,
+    "baseUrl": ".",
+    "paths": {
+      "@onivoro/isomorphic-axios": ["libs/isomorphic/axios/src/index.ts"],
+      "@onivoro/isomorphic-common": ["libs/isomorphic/common/src/index.ts"],
+      "@onivoro/isomorphic-fhir": ["libs/isomorphic/fhir/src/index.ts"],
+      "@onivoro/axios-datavore": ["libs/axios/datavore/src/index.ts"],
+      "@onivoro/server-auth": ["libs/server/auth/src/index.ts"],
+      "@onivoro/server-aws-cloudwatch": [
+        "libs/server/aws-cloudwatch/src/index.ts"
+      ],
+      "@onivoro/server-aws-cognito": ["libs/server/aws-cognito/src/index.ts"],
+      "@onivoro/server-aws-credential-providers": [
+        "libs/server/aws-credential-providers/src/index.ts"
+      ],
+      "@onivoro/server-aws-ecs": ["libs/server/aws-ecs/src/index.ts"],
+      "@onivoro/server-aws-iam": ["libs/server/aws-iam/src/index.ts"],
+      "@onivoro/server-aws-kinesis": ["libs/server/aws-kinesis/src/index.ts"],
+      "@onivoro/server-aws-redshift": ["libs/server/aws-redshift/src/index.ts"],
+      "@onivoro/server-aws-s3": ["libs/server/aws-s3/src/index.ts"],
+      "@onivoro/server-aws-sns": ["libs/server/aws-sns/src/index.ts"],
+      "@onivoro/server-aws-sqs": ["libs/server/aws-sqs/src/index.ts"],
+      "@onivoro/server-aws-sts": ["libs/server/aws-sts/src/index.ts"],
+      "@onivoro/server-cli": ["libs/server/cli/src/index.ts"],
+      "@onivoro/server-common": ["libs/server/common/src/index.ts"],
+      "@onivoro/server-html": ["libs/server/html/src/index.ts"],
+      "@onivoro/server-mcp": ["libs/server/mcp/src/index.ts"],
+      "@onivoro/server-open-ai": ["libs/server/open-ai/src/index.ts"],
+      "@onivoro/server-pino": ["libs/server/pino/src/index.ts"],
+      "@onivoro/server-process": ["libs/server/process/src/index.ts"],
+      "@onivoro/server-resilience": ["libs/server/resilience/src/index.ts"],
+      "@onivoro/server-sendgrid": ["libs/server/sendgrid/src/index.ts"],
+      "@onivoro/server-twilio": ["libs/server/twilio/src/index.ts"],
+      "@onivoro/server-typeorm-mysql": [
+        "libs/server/typeorm-mysql/src/index.ts"
+      ],
+      "@onivoro/server-typeorm-postgres": [
+        "libs/server/typeorm-postgres/src/index.ts"
+      ]
+    }
+  },
+  "exclude": ["node_modules", "tmp", "_tmp"],
+  "references": [
+    {
+      "path": "./tsconfig.isomorphic.json"
+    },
+    {
+      "path": "./tsconfig.server.json"
+    },
+    {
+      "path": "./tsconfig.web.json"
+    }
+  ]
+}

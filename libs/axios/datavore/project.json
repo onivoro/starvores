@@ -1,0 +1,19 @@
+{
+  "name": "lib-axios-datavore",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "libs/axios/datavore/src",
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/axios/datavore",
+        "main": "libs/axios/datavore/src/index.ts",
+        "tsConfig": "libs/axios/datavore/tsconfig.lib.json",
+        "assets": []
+      }
+    }
+  },
+  "tags": []
+}

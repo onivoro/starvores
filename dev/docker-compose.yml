@@ -1,0 +1,28 @@
+services:
+  local_postgres:
+    container_name: local_postgres
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+    ports:
+      - '5434:5432'
+    volumes:
+      - local_postgres_data:/var/lib/postgresql/data
+
+  local_mysql:
+    container_name: local_mysql
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql
+      MYSQL_DATABASE: mysql
+      MYSQL_USER: mysql
+      MYSQL_PASSWORD: mysql
+    ports:
+      - '3306:3306'
+    volumes:
+      - local_mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password --tls-version=''
+volumes:
+  local_postgres_data:
+  local_mysql_data:

@@ -1,0 +1,37 @@
+{
+  "name": "@onivoro/app-server-datavore",
+  "version": "24.33.7",
+  "description": "DataVore NestJS application for data processing and management",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "bin": {
+    "datavore": "./main.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/onivoro/monorepo.git"
+  },
+  "keywords": [
+    "nestjs",
+    "data",
+    "processing",
+    "server",
+    "onivoro"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "**/*.js",
+    "**/*.d.ts",
+    "**/*.js.map",
+    "assets/",
+    "package.json",
+    "README.md"
+  ]
+}

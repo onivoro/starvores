@@ -1,0 +1,13 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Inter, system-ui, sans-serif; }
+.page { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
+.sidebar { border-right: 1px solid #ddd; padding: 16px; overflow: auto; }
+.table { display: block; width: 100%; text-align: left; margin-bottom: 6px; border: 1px solid #ddd; background: white; padding: 8px; border-radius: 6px; }
+.table.active { background: #eef5ff; border-color: #8cb2ff; }
+.main { padding: 20px; overflow: auto; }
+.query textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.query button { margin-top: 8px; }
+.table-wrap { overflow: auto; border: 1px solid #ddd; border-radius: 8px; margin-top: 12px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; vertical-align: top; }
+.error { margin-top: 12px; color: #b00020; }

@@ -1,0 +1,75 @@
+{
+  "name": "app-server-bucketvore",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/server/bucketvore/src",
+  "projectType": "application",
+  "targets": {
+    "build-client": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{projectRoot}/src/assets/scripts"],
+      "options": {
+        "outputPath": "apps/server/bucketvore/src/assets/scripts",
+        "webpackConfig": "apps/server/bucketvore/webpack.client.config.js",
+        "watch": false
+      },
+      "configurations": {
+        "development": {
+          "mode": "development"
+        },
+        "production": {
+          "mode": "production"
+        }
+      }
+    },
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "dependsOn": ["build-client"],
+      "options": {
+        "outputPath": "dist/apps/server/bucketvore",
+        "webpackConfig": "apps/server/bucketvore/webpack.config.js"
+      },
+      "configurations": {
+        "development": {
+          "mode": "development"
+        },
+        "production": {
+          "mode": "production"
+        }
+      }
+    },
+    "serve": {
+      "continuous": true,
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "dependsOn": [
+        "build"
+      ],
+      "options": {
+        "buildTarget": "app-server-bucketvore:build",
+        "runBuildTargetDependencies": false
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "app-server-bucketvore:build:development"
+        },
+        "production": {
+          "buildTarget": "app-server-bucketvore:build:production"
+        }
+      }
+    },
+    "nx-release-publish": {
+      "executor": "@nx/js:release-publish",
+      "options": {
+        "packageRoot": "dist/apps/server/bucketvore"
+      }
+    },
+    "local": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "PORT=3007 nx serve app-server-bucketvore"
+      }
+    }
+  },
+  "tags": []
+}

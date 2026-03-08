@@ -1,0 +1,57 @@
+{
+  "name": "app-server-datavore",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/server/datavore/src",
+  "projectType": "application",
+  "targets": {
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "dependsOn": ["app-browser-datavore:build"],
+      "options": {
+        "outputPath": "dist/apps/server/datavore",
+        "webpackConfig": "apps/server/datavore/webpack.config.js"
+      },
+      "configurations": {
+        "development": {
+          "mode": "development"
+        },
+        "production": {
+          "mode": "production"
+        }
+      }
+    },
+    "serve": {
+      "continuous": true,
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "dependsOn": ["build"],
+      "options": {
+        "buildTarget": "app-server-datavore:build",
+        "runBuildTargetDependencies": false
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "app-server-datavore:build:development"
+        },
+        "production": {
+          "buildTarget": "app-server-datavore:build:production"
+        }
+      }
+    },
+    "openapi-gen": {
+      "executor": "@onivoro/onix:openapi-gen",
+      "options": {
+        "openapiJsonPath": "api-dox/app-server-datavore.json",
+        "outputPath": "libs/axios/datavore/src/lib"
+      }
+    },
+    "nx-release-publish": {
+      "executor": "@nx/js:release-publish",
+      "options": {
+        "packageRoot": "dist/apps/server/datavore"
+      }
+    }
+  },
+  "tags": []
+}

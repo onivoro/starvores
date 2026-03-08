@@ -1,0 +1,25 @@
+name: deploy-main.yml
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22.16.0
+    - run: npm -f install
+    - run: npm i @rollup/rollup-linux-x64-gnu
+    - run: npx nx reset
+    - run: npx nx --version
+    - run: npx nx run-many -t deploy-main --skip-nx-cache
+      env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
