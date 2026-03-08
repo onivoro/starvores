@@ -4,6 +4,8 @@
   "license": "MIT",
   "scripts": {
     "nx": "nx",
+    "datavore:server": "DV_TYPE=postgres DV_HOST=127.0.0.1 DV_PORT=5432 DV_DB=postgres DV_USER=postgres DV_PASSWORD=postgres PORT=3000 npx nx run app-server-datavore:serve",
+    "datavore:browser": "npx nx run app-browser-datavore:serve",
     "datavore:build": "npx nx run app-server-datavore:build:production",
     "datavore:containerize:amd": "docker build --build-arg=\"APP_DIST=dist/apps/server/datavore\" -f docker/prod/server/Dockerfile --platform linux/amd64 -t icedlee337/datavore:amd64 . && echo $DOCKER_PASSWORD | docker login --username $DOCKER_USERNAME --password-stdin && docker push icedlee337/datavore:amd64",
     "datavore:containerize:arm": "docker build --build-arg=\"APP_DIST=dist/apps/server/datavore\" -f docker/prod/server/Dockerfile --platform linux/arm64/v8 -t icedlee337/datavore:arm64v8 . && echo $DOCKER_PASSWORD | docker login --username $DOCKER_USERNAME --password-stdin && docker push icedlee337/datavore:arm64v8",
