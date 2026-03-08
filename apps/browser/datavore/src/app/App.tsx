@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import Editor from '@monaco-editor/react';
 import {
@@ -28,7 +28,10 @@ type ResultState = {
   error?: string;
 };
 
+type DensityMode = 'comfortable' | 'compact';
+
 const DEFAULT_QUERY = 'SELECT * FROM table_name LIMIT 100;';
+const DENSITY_STORAGE_KEY = 'datavore-density-mode';
 
 export function App() {
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
@@ -49,7 +52,12 @@ export function App() {
   const [executing, setExecuting] = useState(false);
   const [queryId, setQueryId] = useState<string | null>(null);
   const [query, setQuery] = useState(DEFAULT_QUERY);
+  const [density, setDensity] = useState<DensityMode>(() => {
+    const saved = localStorage.getItem(DENSITY_STORAGE_KEY);
+    return saved === 'compact' ? 'compact' : 'comfortable';
+  });
   const editorRef = useRef<any>(null);
+  const tableListRef = useRef<HTMLDivElement | null>(null);
 
   const connectionKey = useMemo(() => {
     if (!dbInfo) return 'default';
@@ -91,6 +99,10 @@ export function App() {
     if (saved) setQuery(saved);
   }, [connectionKey]);
 
+  useEffect(() => {
+    localStorage.setItem(DENSITY_STORAGE_KEY, density);
+  }, [density]);
+
   const selectTable = async (tableName: string) => {
     setSelectedTable(tableName);
     setActiveTab('data');
@@ -126,6 +138,14 @@ export function App() {
   const focusEditor = useCallback(() => {
     editorRef.current?.focus();
   }, []);
+
+  const focusSelectedTable = useCallback(() => {
+    if (!tableListRef.current || !tables.length) return;
+    const selectedIndex = tables.findIndex((table) => table.tableName === selectedTable);
+    const targetIndex = selectedIndex >= 0 ? selectedIndex : 0;
+    const target = tableListRef.current.querySelector<HTMLButtonElement>(`button[data-table-idx="${targetIndex}"]`);
+    target?.focus();
+  }, [selectedTable, tables]);
 
   const getQueryToExecute = useCallback(() => {
     if (!editorRef.current) return query;
@@ -180,10 +200,76 @@ export function App() {
     }
   };
 
+  useEffect(() => {
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === 'e') {
+        event.preventDefault();
+        focusEditor();
+        return;
+      }
+      if (key === 'l') {
+        event.preventDefault();
+        focusSelectedTable();
+        return;
+      }
+      if (key === '1') {
+        event.preventDefault();
+        setActiveTab('data');
+        return;
+      }
+      if (key === '2') {
+        event.preventDefault();
+        setActiveTab('structure');
+        return;
+      }
+      if (key === ',') {
+        event.preventDefault();
+        setDensity((current) => (current === 'comfortable' ? 'compact' : 'comfortable'));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeydown);
+    return () => window.removeEventListener('keydown', handleKeydown);
+  }, [focusEditor, focusSelectedTable]);
+
+  const handleTableNav = useCallback(
+    (event: ReactKeyboardEvent<HTMLButtonElement>, tableName: string) => {
+      const currentIndex = tables.findIndex((table) => table.tableName === tableName);
+      if (currentIndex < 0) return;
+
+      const focusTableByIndex = (index: number) => {
+        const target = tables[index];
+        if (!target || !tableListRef.current) return;
+        const button = tableListRef.current.querySelector<HTMLButtonElement>(`button[data-table-idx="${index}"]`);
+        button?.focus();
+      };
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        focusTableByIndex(Math.min(currentIndex + 1, tables.length - 1));
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        focusTableByIndex(Math.max(currentIndex - 1, 0));
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        focusTableByIndex(0);
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        focusTableByIndex(tables.length - 1);
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        void selectTable(tableName);
+      }
+    },
+    [tables],
+  );
+
   return (
-    <div className="dv-shell">
+    <div className="dv-shell" data-density={density}>
       <aside className="dv-sidebar">
-        <div className="mb-4">
+        <div className="dv-sidebar-head">
           <h1 className="text-lg font-semibold">DataVore</h1>
           <p className="text-xs text-subtle mt-1" aria-live="polite">
             {dbInfo
@@ -192,7 +278,12 @@ export function App() {
           </p>
         </div>
 
-        <div className="space-y-2">
+        <div className="dv-section-head">
+          <h2 className="dv-section-title">Tables</h2>
+          <p className="dv-section-meta">{tables.length.toLocaleString()} total</p>
+        </div>
+
+        <div className="space-y-2" ref={tableListRef} role="listbox" aria-label="Database tables">
           {tablesLoading && <p className="dv-empty">Loading tables...</p>}
           {tablesError && (
             <div className="dv-state dv-state-error">
@@ -207,11 +298,15 @@ export function App() {
           )}
           {!tablesLoading &&
             !tablesError &&
-            tables.map((table) => (
+            tables.map((table, idx) => (
               <button
                 key={table.tableName}
                 className={`dv-input text-left ${selectedTable === table.tableName ? 'ring-1 ring-accent' : ''}`}
                 onClick={() => void selectTable(table.tableName)}
+                onKeyDown={(event) => handleTableNav(event, table.tableName)}
+                data-table-idx={idx}
+                role="option"
+                aria-selected={selectedTable === table.tableName}
               >
                 {table.tableName}
               </button>
@@ -219,11 +314,25 @@ export function App() {
         </div>
       </aside>
 
-      <main className="dv-main space-y-4">
-        <section className="dv-card p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-subtle uppercase tracking-wide">SQL Query</h2>
-            <div className="flex gap-2">
+      <main className="dv-main">
+        <section className="dv-card dv-card-pad dv-query-section">
+          <div className="dv-query-toolbar">
+            <div className="dv-section-head">
+              <h2 className="dv-section-title">SQL Query</h2>
+              <p className="dv-section-meta">Cmd/Ctrl+Enter runs selected SQL</p>
+            </div>
+            <div className="dv-toolbar-actions">
+              <label className="dv-density-label" htmlFor="density-mode">Density</label>
+              <select
+                id="density-mode"
+                className="dv-select"
+                value={density}
+                onChange={(event) => setDensity(event.target.value as DensityMode)}
+                aria-label="Set layout density"
+              >
+                <option value="comfortable">Comfortable</option>
+                <option value="compact">Compact</option>
+              </select>
               <button
                 className="dv-btn-ghost"
                 onClick={() => {
@@ -234,16 +343,16 @@ export function App() {
                 Clear
               </button>
               {!executing ? (
-                <button className="dv-btn" onClick={() => void executeQuery()}>Run Cmd/Ctrl+Enter</button>
+                <button className="dv-btn" onClick={() => void executeQuery()}>Run</button>
               ) : (
                 <button className="dv-btn-danger" onClick={() => void cancelQuery()}>Cancel</button>
               )}
             </div>
           </div>
 
-          <div className="dv-editor-shell h-64">
+          <div className="dv-editor-shell">
             <Editor
-              height="100%"
+              height={density === 'compact' ? '220px' : '260px'}
               defaultLanguage="sql"
               value={query}
               onChange={(v) => setQuery(v ?? '')}
@@ -268,12 +377,12 @@ export function App() {
         </section>
 
         <Tabs.Root value={activeTab} onValueChange={(v) => setActiveTab(v as 'data' | 'structure')}>
-          <Tabs.List className="flex gap-2 mb-3">
+          <Tabs.List className="dv-tab-list">
             <Tabs.Trigger className="dv-tab" value="data">Data</Tabs.Trigger>
             <Tabs.Trigger className="dv-tab" value="structure">Structure</Tabs.Trigger>
           </Tabs.List>
 
-          <Tabs.Content value="data" className="dv-card p-4">
+          <Tabs.Content value="data" className="dv-card dv-card-pad">
             {tableDataLoading ? (
               <p className="dv-empty">Loading table data...</p>
             ) : executing ? (
@@ -285,15 +394,15 @@ export function App() {
             ) : result?.error ? (
               <p className="text-danger text-sm">{result.error}</p>
             ) : result ? (
-              <DataTable rows={result.rows} rowCount={result.rowCount} />
+              <DataTable rows={result.rows} rowCount={result.rowCount} density={density} />
             ) : selectedTable ? (
-              <DataTable rows={tableData} />
+              <DataTable rows={tableData} density={density} />
             ) : (
               <p className="dv-empty">Select a table or run a query.</p>
             )}
           </Tabs.Content>
 
-          <Tabs.Content value="structure" className="dv-card p-4">
+          <Tabs.Content value="structure" className="dv-card dv-card-pad">
             {!selectedTable ? (
               <p className="dv-empty">Select a table to inspect structure.</p>
             ) : structureLoading ? (
@@ -301,7 +410,7 @@ export function App() {
             ) : structureError ? (
               <p className="text-danger text-sm">{structureError}</p>
             ) : structure ? (
-              <StructurePanel structure={structure} />
+              <StructurePanel structure={structure} density={density} />
             ) : (
               <p className="dv-empty">No structure loaded.</p>
             )}
@@ -312,13 +421,21 @@ export function App() {
   );
 }
 
-function DataTable({ rows, rowCount }: { rows: Record<string, unknown>[]; rowCount?: number }) {
+function DataTable({
+  rows,
+  rowCount,
+  density,
+}: {
+  rows: Record<string, unknown>[];
+  rowCount?: number;
+  density: DensityMode;
+}) {
   if (!rows?.length) return <p className="dv-empty">No rows</p>;
   const columns = Object.keys(rows[0] ?? {});
   const totalRows = rowCount ?? rows.length;
 
   return (
-    <div className="dv-table-shell">
+    <div className="dv-table-shell" data-density={density}>
       <table className="dv-table">
         <thead>
           <tr>
@@ -353,18 +470,18 @@ function DataTable({ rows, rowCount }: { rows: Record<string, unknown>[]; rowCou
   );
 }
 
-function StructurePanel({ structure }: { structure: TableStructureInfo }) {
+function StructurePanel({ structure, density }: { structure: TableStructureInfo; density: DensityMode }) {
   return (
     <div className="space-y-6 text-sm">
       <section>
         <h3 className="font-semibold mb-2">Columns</h3>
-        <DataTable rows={structure.columns} />
+        <DataTable rows={structure.columns} density={density} />
       </section>
 
       <section>
         <h3 className="font-semibold mb-2">Primary Keys</h3>
         {structure.primaryKeys.length ? (
-          <DataTable rows={structure.primaryKeys} />
+          <DataTable rows={structure.primaryKeys} density={density} />
         ) : (
           <p className="dv-empty">No primary keys.</p>
         )}
@@ -373,7 +490,7 @@ function StructurePanel({ structure }: { structure: TableStructureInfo }) {
       <section>
         <h3 className="font-semibold mb-2">Foreign Keys</h3>
         {structure.foreignKeys.length ? (
-          <DataTable rows={structure.foreignKeys} />
+          <DataTable rows={structure.foreignKeys} density={density} />
         ) : (
           <p className="dv-empty">No foreign keys.</p>
         )}
@@ -382,7 +499,7 @@ function StructurePanel({ structure }: { structure: TableStructureInfo }) {
       <section>
         <h3 className="font-semibold mb-2">Indexes</h3>
         {structure.indices.length ? (
-          <DataTable rows={structure.indices} />
+          <DataTable rows={structure.indices} density={density} />
         ) : (
           <p className="dv-empty">No indexes.</p>
         )}

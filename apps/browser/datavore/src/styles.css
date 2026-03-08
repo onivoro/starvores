@@ -18,13 +18,24 @@
 @layer components {
   .dv-shell { @apply h-screen grid grid-cols-[280px_1fr]; }
   .dv-sidebar { @apply bg-panel border-r p-4 overflow-auto; }
-  .dv-main { @apply p-4 md:p-6 overflow-auto; }
+  .dv-sidebar-head { @apply mb-5; }
+  .dv-main { @apply p-4 md:p-6 overflow-auto space-y-4; }
   .dv-card { @apply bg-panel border rounded-md shadow-panel; }
+  .dv-card-pad { @apply p-4; }
+  .dv-section-head { @apply space-y-1; }
+  .dv-section-title { @apply text-xs font-semibold text-subtle uppercase tracking-wide m-0; }
+  .dv-section-meta { @apply text-xs text-subtle m-0; }
   .dv-btn { @apply px-3 py-2 rounded-md bg-accent text-white text-sm font-medium hover:opacity-90 disabled:opacity-50; }
   .dv-btn-ghost { @apply px-3 py-2 rounded-md bg-muted text-text text-sm hover:opacity-90; }
   .dv-btn-danger { @apply px-3 py-2 rounded-md bg-danger text-white text-sm font-medium hover:opacity-90; }
   .dv-input { @apply w-full bg-muted border rounded-md px-3 py-2 text-sm text-text; }
+  .dv-select { @apply bg-muted border rounded-md px-2 py-2 text-sm text-text; }
+  .dv-density-label { @apply text-xs text-subtle; }
   .dv-empty { @apply text-subtle text-sm p-4; }
+  .dv-query-section { @apply space-y-3; }
+  .dv-query-toolbar { @apply flex flex-wrap gap-3 items-start justify-between; }
+  .dv-toolbar-actions { @apply flex items-center gap-2 flex-wrap; }
+  .dv-tab-list { @apply flex gap-2 mb-3; }
   .dv-tab { @apply px-3 py-2 text-sm rounded-md bg-muted text-subtle data-[state=active]:text-text data-[state=active]:bg-panel border; }
   .dv-state { @apply rounded-md border p-3 text-sm; }
   .dv-state-error { @apply bg-danger border-danger text-white; }
@@ -33,11 +44,27 @@
   .dv-table-shell { @apply border rounded-md overflow-auto; }
   .dv-table { @apply w-full text-sm border-collapse; }
   .dv-table thead { @apply bg-muted text-subtle sticky top-0 z-10; }
-  .dv-table th { @apply p-2 border-b font-medium; }
-  .dv-table td { @apply p-2 border-b border-border font-mono text-xs align-top; }
+  .dv-table th { @apply px-3 py-2 border-b font-medium; }
+  .dv-table td { @apply px-3 py-2 border-b border-border font-mono text-xs align-top; }
   .dv-table tr:hover td { @apply bg-muted; }
   .dv-table-index { @apply text-subtle text-right w-12 min-w-12 bg-panel font-mono text-xs; }
   .dv-table-cell { @apply cursor-copy whitespace-pre-wrap break-words; }
   .dv-table-footer { @apply text-xs text-subtle p-2; }
   .dv-cell-null { @apply text-subtle italic; }
+
+  .dv-shell[data-density='compact'] .dv-sidebar { @apply p-3; }
+  .dv-shell[data-density='compact'] .dv-main { @apply p-3 md:p-4 space-y-3; }
+  .dv-shell[data-density='compact'] .dv-card-pad { @apply p-3; }
+  .dv-shell[data-density='compact'] .dv-btn,
+  .dv-shell[data-density='compact'] .dv-btn-ghost,
+  .dv-shell[data-density='compact'] .dv-btn-danger,
+  .dv-shell[data-density='compact'] .dv-input,
+  .dv-shell[data-density='compact'] .dv-select { @apply py-1.5; }
+  .dv-table-shell[data-density='compact'] .dv-table th,
+  .dv-table-shell[data-density='compact'] .dv-table td { @apply px-2 py-1.5; }
+
+  @media (max-width: 1024px) {
+    .dv-shell { @apply grid-cols-1; }
+    .dv-sidebar { @apply border-r-0 border-b; }
+  }
 }
