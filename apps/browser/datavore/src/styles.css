@@ -26,4 +26,18 @@
   .dv-input { @apply w-full bg-muted border rounded-md px-3 py-2 text-sm text-text; }
   .dv-empty { @apply text-subtle text-sm p-4; }
   .dv-tab { @apply px-3 py-2 text-sm rounded-md bg-muted text-subtle data-[state=active]:text-text data-[state=active]:bg-panel border; }
+  .dv-state { @apply rounded-md border p-3 text-sm; }
+  .dv-state-error { @apply bg-danger border-danger text-white; }
+  .dv-state-text { @apply text-xs text-subtle; }
+  .dv-editor-shell { @apply border rounded-md overflow-hidden bg-muted; }
+  .dv-table-shell { @apply border rounded-md overflow-auto; }
+  .dv-table { @apply w-full text-sm border-collapse; }
+  .dv-table thead { @apply bg-muted text-subtle sticky top-0 z-10; }
+  .dv-table th { @apply p-2 border-b font-medium; }
+  .dv-table td { @apply p-2 border-b border-border font-mono text-xs align-top; }
+  .dv-table tr:hover td { @apply bg-muted; }
+  .dv-table-index { @apply text-subtle text-right w-12 min-w-12 bg-panel font-mono text-xs; }
+  .dv-table-cell { @apply cursor-copy whitespace-pre-wrap break-words; }
+  .dv-table-footer { @apply text-xs text-subtle p-2; }
+  .dv-cell-null { @apply text-subtle italic; }
 }
