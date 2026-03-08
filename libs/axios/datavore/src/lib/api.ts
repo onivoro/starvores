@@ -18,8 +18,18 @@ export interface QueryResponse {
   error?: string;
 }
 
+export interface DatabaseInfo {
+  type: string;
+  isConnected: boolean;
+  databaseName?: string;
+}
+
 export class DatavoreApi {
   constructor(private readonly http: AxiosInstance) {}
+
+  getDatabaseInfo() {
+    return this.http.get<DatabaseInfo>('/api/tables/debug/info');
+  }
 
   getTables() {
     return this.http.get<TableInfo[]>('/api/tables');

@@ -1,31 +1,55 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createDatavoreApi, TableInfo, TableStructureInfo } from '@onivoro/axios-datavore';
+import * as Tabs from '@radix-ui/react-tabs';
+import Editor from '@monaco-editor/react';
+import {
+  createDatavoreApi,
+  DatabaseInfo,
+  TableInfo,
+  TableStructureInfo,
+} from '@onivoro/axios-datavore';
 
 const api = createDatavoreApi('');
 
+type ResultState = {
+  rows: any[];
+  rowCount: number;
+  elapsedMs: number;
+  error?: string;
+};
+
+const DEFAULT_QUERY = 'SELECT * FROM table_name LIMIT 100;';
+
 export function App() {
+  const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [selectedTable, setSelectedTable] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'data' | 'structure'>('data');
   const [tableData, setTableData] = useState<any[]>([]);
   const [structure, setStructure] = useState<TableStructureInfo | null>(null);
-  const [query, setQuery] = useState('SELECT * FROM table_name LIMIT 100;');
-  const [queryRows, setQueryRows] = useState<any[]>([]);
-  const [rowCount, setRowCount] = useState<number>(0);
-  const [elapsedMs, setElapsedMs] = useState<number>(0);
-  const [error, setError] = useState<string>('');
+  const [result, setResult] = useState<ResultState | null>(null);
   const [loading, setLoading] = useState(false);
+  const [executing, setExecuting] = useState(false);
+  const [queryId, setQueryId] = useState<string | null>(null);
+  const [query, setQuery] = useState(DEFAULT_QUERY);
+
+  const connectionKey = useMemo(() => {
+    if (!dbInfo) return 'default';
+    return `${dbInfo.type}:${dbInfo.databaseName ?? 'db'}`;
+  }, [dbInfo]);
 
   useEffect(() => {
-    api.getTables()
-      .then((res) => setTables(res.data))
-      .catch((e) => setError(e?.message || 'Failed to load tables'));
+    api.getDatabaseInfo().then(({ data }) => setDbInfo(data)).catch(() => null);
+    api.getTables().then(({ data }) => setTables(data));
   }, []);
 
-  const columns = useMemo(() => (tableData.length ? Object.keys(tableData[0]) : []), [tableData]);
+  useEffect(() => {
+    const saved = localStorage.getItem(`datavore-query:${connectionKey}`);
+    if (saved) setQuery(saved);
+  }, [connectionKey]);
 
   const selectTable = async (tableName: string) => {
     setSelectedTable(tableName);
-    setError('');
+    setActiveTab('data');
     setLoading(true);
     try {
       const [dataRes, structureRes] = await Promise.all([
@@ -34,94 +58,193 @@ export function App() {
       ]);
       setTableData(dataRes.data);
       setStructure(structureRes.data);
-    } catch (e: any) {
-      setError(e?.message || 'Failed to load table details');
     } finally {
       setLoading(false);
     }
   };
 
   const executeQuery = async () => {
-    setLoading(true);
-    setError('');
+    if (!query.trim() || executing) return;
+    setExecuting(true);
+    const id = `q-${Date.now()}`;
+    setQueryId(id);
+
     try {
-      const res = await api.executeQuery(query);
-      setQueryRows(res.data.rows || []);
-      setRowCount(res.data.rowCount || 0);
-      setElapsedMs(res.data.elapsedMs || 0);
-      if (res.data.error) setError(res.data.error);
-    } catch (e: any) {
-      setError(e?.message || 'Query failed');
+      const { data } = await api.executeQuery(query, id);
+      setResult(data);
+      setActiveTab('data');
+      localStorage.setItem(`datavore-query:${connectionKey}`, query);
     } finally {
-      setLoading(false);
+      setExecuting(false);
+      setQueryId(null);
     }
   };
 
-  const queryColumns = queryRows.length ? Object.keys(queryRows[0]) : [];
+  const cancelQuery = async () => {
+    if (!queryId) return;
+    const { data } = await api.cancelQuery(queryId);
+    if (data.cancelled) {
+      setExecuting(false);
+      setResult({ rows: [], rowCount: 0, elapsedMs: 0, error: 'Query cancelled' });
+      setQueryId(null);
+    }
+  };
 
   return (
-    <div className="page">
-      <aside className="sidebar">
-        <h2>Tables</h2>
-        {tables.map((table) => (
-          <button
-            key={table.tableName}
-            className={selectedTable === table.tableName ? 'table active' : 'table'}
-            onClick={() => selectTable(table.tableName)}
-          >
-            {table.tableName}
-          </button>
-        ))}
+    <div className="dv-shell">
+      <aside className="dv-sidebar">
+        <div className="mb-4">
+          <h1 className="text-lg font-semibold">DataVore</h1>
+          <p className="text-xs text-subtle mt-1">
+            {dbInfo ? `${dbInfo.type} / ${dbInfo.databaseName ?? 'unknown'}` : 'connecting...'}
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          {tables.map((table) => (
+            <button
+              key={table.tableName}
+              className={`dv-input text-left ${selectedTable === table.tableName ? 'ring-1 ring-accent' : ''}`}
+              onClick={() => selectTable(table.tableName)}
+            >
+              {table.tableName}
+            </button>
+          ))}
+        </div>
       </aside>
-      <main className="main">
-        <h1>DataVore</h1>
-        <section className="query">
-          <textarea value={query} onChange={(e) => setQuery(e.target.value)} rows={8} />
-          <button onClick={executeQuery} disabled={loading}>Run Query</button>
-          {!!queryRows.length && <p>{rowCount} rows in {elapsedMs}ms</p>}
-          {queryRows.length > 0 && <DataTable columns={queryColumns} rows={queryRows} />}
+
+      <main className="dv-main space-y-4">
+        <section className="dv-card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-subtle uppercase tracking-wide">SQL Query</h2>
+            <div className="flex gap-2">
+              <button className="dv-btn-ghost" onClick={() => setQuery('')}>Clear</button>
+              {!executing ? (
+                <button className="dv-btn" onClick={executeQuery}>Run ⌘↵</button>
+              ) : (
+                <button className="dv-btn-danger" onClick={cancelQuery}>Cancel</button>
+              )}
+            </div>
+          </div>
+
+          <div className="h-64 border rounded-md overflow-hidden bg-[#11151d]">
+            <Editor
+              height="100%"
+              defaultLanguage="sql"
+              value={query}
+              onChange={(v) => setQuery(v ?? '')}
+              theme="vs-dark"
+              options={{ minimap: { enabled: false }, fontSize: 13, scrollBeyondLastLine: false }}
+              onMount={(editor, monaco) => {
+                editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, executeQuery);
+              }}
+            />
+          </div>
+          {result && (
+            <p className="text-xs text-subtle">
+              {result.rowCount.toLocaleString()} rows • {result.elapsedMs}ms
+            </p>
+          )}
         </section>
 
-        {selectedTable && (
-          <section>
-            <h2>{selectedTable}</h2>
-            {loading ? <p>Loading…</p> : <DataTable columns={columns} rows={tableData} />}
-            {structure && (
-              <div className="structure">
-                <h3>Structure</h3>
-                <ul>
-                  {structure.columns.map((col) => (
-                    <li key={col.columnName}>{col.columnName} — {col.dataType}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </section>
-        )}
+        <Tabs.Root value={activeTab} onValueChange={(v) => setActiveTab(v as 'data' | 'structure')}>
+          <Tabs.List className="flex gap-2 mb-3">
+            <Tabs.Trigger className="dv-tab" value="data">Data</Tabs.Trigger>
+            <Tabs.Trigger className="dv-tab" value="structure">Structure</Tabs.Trigger>
+          </Tabs.List>
 
-        {error && <div className="error">{error}</div>}
+          <Tabs.Content value="data" className="dv-card p-4">
+            {loading ? (
+              <p className="dv-empty">Loading data…</p>
+            ) : result?.error ? (
+              <p className="text-danger text-sm">{result.error}</p>
+            ) : result ? (
+              <DataTable rows={result.rows} />
+            ) : selectedTable ? (
+              <DataTable rows={tableData} />
+            ) : (
+              <p className="dv-empty">Select a table or run a query.</p>
+            )}
+          </Tabs.Content>
+
+          <Tabs.Content value="structure" className="dv-card p-4">
+            {structure ? <StructurePanel structure={structure} /> : <p className="dv-empty">No structure loaded.</p>}
+          </Tabs.Content>
+        </Tabs.Root>
       </main>
     </div>
   );
 }
 
-function DataTable({ columns, rows }: { columns: string[]; rows: any[] }) {
-  if (!rows.length) return <p>No rows</p>;
+function DataTable({ rows }: { rows: any[] }) {
+  if (!rows?.length) return <p className="dv-empty">No rows</p>;
+  const columns = Object.keys(rows[0]);
 
   return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr>
+    <div className="overflow-auto border rounded-md">
+      <table className="w-full text-sm border-collapse">
+        <thead className="bg-muted text-subtle">
+          <tr>
+            {columns.map((column) => (
+              <th key={column} className="text-left p-2 border-b">{column}</th>
+            ))}
+          </tr>
         </thead>
         <tbody>
           {rows.map((row, idx) => (
-            <tr key={idx}>
-              {columns.map((column) => <td key={column}>{String(row[column] ?? '')}</td>)}
+            <tr key={idx} className="border-b border-border/60">
+              {columns.map((column) => (
+                <td
+                  key={column}
+                  className="p-2 font-mono text-xs"
+                  title="Click to copy"
+                  onClick={() => navigator.clipboard.writeText(String(row[column] ?? ''))}
+                >
+                  {renderCell(row[column])}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>
       </table>
     </div>
   );
+}
+
+function StructurePanel({ structure }: { structure: TableStructureInfo }) {
+  return (
+    <div className="space-y-6 text-sm">
+      <section>
+        <h3 className="font-semibold mb-2">Columns</h3>
+        <DataTable rows={structure.columns} />
+      </section>
+
+      {!!structure.primaryKeys.length && (
+        <section>
+          <h3 className="font-semibold mb-2">Primary Keys</h3>
+          <DataTable rows={structure.primaryKeys} />
+        </section>
+      )}
+
+      {!!structure.foreignKeys.length && (
+        <section>
+          <h3 className="font-semibold mb-2">Foreign Keys</h3>
+          <DataTable rows={structure.foreignKeys} />
+        </section>
+      )}
+
+      {!!structure.indices.length && (
+        <section>
+          <h3 className="font-semibold mb-2">Indexes</h3>
+          <DataTable rows={structure.indices} />
+        </section>
+      )}
+    </div>
+  );
+}
+
+function renderCell(value: unknown): string {
+  if (value === null || value === undefined) return 'NULL';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
 }
