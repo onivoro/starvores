@@ -182,6 +182,15 @@ export function App() {
     localStorage.setItem(DENSITY_STORAGE_KEY, density);
   }, [density]);
 
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const currentValue = editor.getValue?.();
+    if (typeof currentValue === 'string' && currentValue !== query) {
+      editor.setValue(query);
+    }
+  }, [query]);
+
   useEffect(
     () => () => {
       exportAbortControllerRef.current?.abort();
@@ -224,6 +233,10 @@ export function App() {
     editorRef.current?.focus();
   }, []);
 
+  const getEditorContents = useCallback(() => {
+    return editorRef.current?.getValue?.() ?? query;
+  }, [query]);
+
   const focusSelectedSidebarItem = useCallback(() => {
     if (!tableListRef.current) return;
     const selectedIndex =
@@ -239,8 +252,8 @@ export function App() {
       const selectedQuery = editorRef.current.getModel?.()?.getValueInRange?.(selection) ?? '';
       if (selectedQuery.trim()) return selectedQuery;
     }
-    return editorRef.current.getValue?.() ?? query;
-  }, [query]);
+    return getEditorContents();
+  }, [getEditorContents, query]);
 
   const hasExecutableQuery = useMemo(() => getQueryToExecute().trim().length > 0, [getQueryToExecute]);
   const exportInProgress = exportState.status === 'preparing' || exportState.status === 'streaming';
@@ -419,7 +432,7 @@ export function App() {
     const id = `q-${Date.now()}`;
     setQueryId(id);
 
-    const editorContents = editorRef.current?.getValue?.() ?? query;
+    const editorContents = getEditorContents();
     if (queryStorageKey) {
       localStorage.setItem(queryStorageKey, editorContents);
     }
@@ -435,7 +448,7 @@ export function App() {
       setQueryId(null);
       focusEditor();
     }
-  }, [executing, focusEditor, getQueryToExecute, query, queryStorageKey]);
+  }, [executing, focusEditor, getEditorContents, getQueryToExecute, queryStorageKey]);
 
   const cancelQuery = async () => {
     if (!queryId) return;
@@ -722,10 +735,16 @@ export function App() {
                   options={{ minimap: { enabled: false }, fontSize: 13, scrollBeyondLastLine: false }}
                   onMount={(editor, monaco) => {
                     editorRef.current = editor;
+                    if (editor.getValue() !== query) {
+                      editor.setValue(query);
+                    }
                     editor.focus();
                     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
                       void executeQuery();
                     });
+                  }}
+                  onUnmount={() => {
+                    editorRef.current = null;
                   }}
                 />
               </div>
