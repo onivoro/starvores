@@ -1067,6 +1067,29 @@ export function App() {
               </div>
             </div>
 
+            {(executing || resultError || result) && (
+              <section className="dv-card dv-card-pad">
+                <div className="dv-query-toolbar">
+                  <div className="dv-section-head">
+                    <h3 className="dv-section-title">Latest SQL Result</h3>
+                    <p className="dv-section-meta">From SQL Query workspace</p>
+                  </div>
+                  <div className="dv-toolbar-actions">
+                    <button className="dv-btn-ghost" onClick={selectSqlView}>Open SQL Query</button>
+                  </div>
+                </div>
+                {executing ? (
+                  <p className="dv-empty">Executing query...</p>
+                ) : resultError ? (
+                  <p className="text-danger text-sm">{resultError}</p>
+                ) : result?.error ? (
+                  <p className="text-danger text-sm">{result.error}</p>
+                ) : result ? (
+                  <DataTable rows={result.rows} rowCount={result.rowCount} density={density} />
+                ) : null}
+              </section>
+            )}
+
             <Tabs.Root value={activeTab} onValueChange={(v) => setActiveTab(v as 'data' | 'structure')}>
               <Tabs.List className="dv-tab-list">
                 <Tabs.Trigger className="dv-tab" value="data">Data</Tabs.Trigger>
