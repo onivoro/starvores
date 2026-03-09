@@ -29,6 +29,7 @@
   .dv-btn-ghost { @apply px-3 py-2 rounded-md bg-muted text-text text-sm hover:opacity-90; }
   .dv-btn-danger { @apply px-3 py-2 rounded-md bg-danger text-white text-sm font-medium hover:opacity-90; }
   .dv-input { @apply w-full bg-muted border rounded-md px-3 py-2 text-sm text-text; }
+  .dv-nav-query { @apply mb-3; }
   .dv-select { @apply bg-muted border rounded-md px-2 py-2 text-sm text-text; }
   .dv-density-label { @apply text-xs text-subtle; }
   .dv-empty { @apply text-subtle text-sm p-4; }
