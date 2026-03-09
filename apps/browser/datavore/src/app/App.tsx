@@ -146,6 +146,7 @@ export function App() {
   const [executing, setExecuting] = useState(false);
   const [queryId, setQueryId] = useState<string | null>(null);
   const [sqlWorkspace, setSqlWorkspace] = useState<SqlWorkspaceState>(() => loadWorkspaceState(null, DEFAULT_QUERY));
+  const [workspaceHydratedForKey, setWorkspaceHydratedForKey] = useState<string | null>(null);
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [tabNameDraft, setTabNameDraft] = useState('');
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -206,12 +207,14 @@ export function App() {
   useEffect(() => {
     if (!tabsStorageKey) {
       setSqlWorkspace(loadWorkspaceState(null, DEFAULT_QUERY));
+      setWorkspaceHydratedForKey(null);
       return;
     }
 
     const legacyQuery = queryStorageKey ? localStorage.getItem(queryStorageKey) : null;
     const rawWorkspace = localStorage.getItem(tabsStorageKey);
     setSqlWorkspace(loadWorkspaceState(rawWorkspace, legacyQuery || DEFAULT_QUERY));
+    setWorkspaceHydratedForKey(tabsStorageKey);
   }, [queryStorageKey, tabsStorageKey]);
 
   useEffect(() => {
@@ -228,13 +231,13 @@ export function App() {
   }, [density]);
 
   useEffect(() => {
-    if (tabsStorageKey) {
-      localStorage.setItem(tabsStorageKey, serializeWorkspaceState(sqlWorkspace));
-    }
+    if (!tabsStorageKey || workspaceHydratedForKey !== tabsStorageKey) return;
+
+    localStorage.setItem(tabsStorageKey, serializeWorkspaceState(sqlWorkspace));
     if (queryStorageKey && activeSqlTab) {
       localStorage.setItem(queryStorageKey, activeSqlTab.query);
     }
-  }, [activeSqlTab, queryStorageKey, sqlWorkspace, tabsStorageKey]);
+  }, [activeSqlTab, queryStorageKey, sqlWorkspace, tabsStorageKey, workspaceHydratedForKey]);
 
   useEffect(() => {
     if (!pinnedTablesStorageKey) return;
