@@ -8,6 +8,20 @@ import {
   TableInfo,
   TableStructureInfo,
 } from '@onivoro/axios-datavore';
+import {
+  closeTabInWorkspace,
+  createTab,
+  getNextTabName,
+  getPinnedTablesStorageKey,
+  getTabsStorageKey,
+  loadPinnedTables,
+  loadWorkspaceState,
+  renameTabInWorkspace,
+  serializePinnedTables,
+  serializeWorkspaceState,
+  SqlWorkspaceState,
+  updateTabQueryInWorkspace,
+} from './queryWorkspace';
 
 const api = createDatavoreApi('');
 
@@ -41,6 +55,12 @@ type ExportState = {
   filename: string;
   partialSaved: boolean;
   message?: string;
+};
+
+type SidebarNavItem = {
+  id: string;
+  type: 'sql' | 'table';
+  tableName?: string;
 };
 
 const DEFAULT_QUERY = 'SELECT * FROM table_name LIMIT 100;';
@@ -98,12 +118,20 @@ const getJsonlExportErrorMessage = (errorData: QueryJsonlExportError | null, sta
   return `Export request failed (HTTP ${status}).`;
 };
 
+const getTableFilterMatcher = (tableFilter: string): ((table: TableInfo) => boolean) => {
+  const filter = tableFilter.trim().toLowerCase();
+  if (!filter) return () => true;
+  return (table) => table.tableName.toLowerCase().includes(filter);
+};
+
 export function App() {
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
   const [dbInfoError, setDbInfoError] = useState<string | null>(null);
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [tablesError, setTablesError] = useState<string | null>(null);
   const [tablesLoading, setTablesLoading] = useState(true);
+  const [tableFilter, setTableFilter] = useState('');
+  const [pinnedTables, setPinnedTables] = useState<string[]>([]);
   const [activeView, setActiveView] = useState<SidebarView>('sql');
   const [selectedTable, setSelectedTable] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'data' | 'structure'>('data');
@@ -117,7 +145,9 @@ export function App() {
   const [resultError, setResultError] = useState<string | null>(null);
   const [executing, setExecuting] = useState(false);
   const [queryId, setQueryId] = useState<string | null>(null);
-  const [query, setQuery] = useState(DEFAULT_QUERY);
+  const [sqlWorkspace, setSqlWorkspace] = useState<SqlWorkspaceState>(() => loadWorkspaceState(null, DEFAULT_QUERY));
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
+  const [tabNameDraft, setTabNameDraft] = useState('');
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportFilename, setExportFilename] = useState(getDefaultExportFilename());
   const [exportLimitMode, setExportLimitMode] = useState<ExportLimitMode>(DEFAULT_EXPORT_LIMIT_MODE);
@@ -135,6 +165,13 @@ export function App() {
   const exportCancelledByUserRef = useRef(false);
 
   const queryStorageKey = useMemo(() => getQueryStorageKey(dbInfo), [dbInfo]);
+  const tabsStorageKey = useMemo(() => getTabsStorageKey(queryStorageKey), [queryStorageKey]);
+  const pinnedTablesStorageKey = useMemo(() => getPinnedTablesStorageKey(queryStorageKey), [queryStorageKey]);
+
+  const activeSqlTab = useMemo(
+    () => sqlWorkspace.tabs.find((tab) => tab.id === sqlWorkspace.activeTabId) ?? sqlWorkspace.tabs[0],
+    [sqlWorkspace.activeTabId, sqlWorkspace.tabs],
+  );
 
   const loadConnectionInfo = useCallback(async () => {
     try {
@@ -167,29 +204,51 @@ export function App() {
   }, [loadConnectionInfo, loadTables]);
 
   useEffect(() => {
-    if (!queryStorageKey) return;
-
-    const saved = localStorage.getItem(queryStorageKey);
-    if (saved) {
-      setQuery(saved);
+    if (!tabsStorageKey) {
+      setSqlWorkspace(loadWorkspaceState(null, DEFAULT_QUERY));
       return;
     }
 
-    setQuery(DEFAULT_QUERY);
-  }, [queryStorageKey]);
+    const legacyQuery = queryStorageKey ? localStorage.getItem(queryStorageKey) : null;
+    const rawWorkspace = localStorage.getItem(tabsStorageKey);
+    setSqlWorkspace(loadWorkspaceState(rawWorkspace, legacyQuery || DEFAULT_QUERY));
+  }, [queryStorageKey, tabsStorageKey]);
+
+  useEffect(() => {
+    if (!pinnedTablesStorageKey) {
+      setPinnedTables([]);
+      return;
+    }
+
+    setPinnedTables(loadPinnedTables(localStorage.getItem(pinnedTablesStorageKey)));
+  }, [pinnedTablesStorageKey]);
 
   useEffect(() => {
     localStorage.setItem(DENSITY_STORAGE_KEY, density);
   }, [density]);
 
   useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const currentValue = editor.getValue?.();
-    if (typeof currentValue === 'string' && currentValue !== query) {
-      editor.setValue(query);
+    if (tabsStorageKey) {
+      localStorage.setItem(tabsStorageKey, serializeWorkspaceState(sqlWorkspace));
     }
-  }, [query]);
+    if (queryStorageKey && activeSqlTab) {
+      localStorage.setItem(queryStorageKey, activeSqlTab.query);
+    }
+  }, [activeSqlTab, queryStorageKey, sqlWorkspace, tabsStorageKey]);
+
+  useEffect(() => {
+    if (!pinnedTablesStorageKey) return;
+    localStorage.setItem(pinnedTablesStorageKey, serializePinnedTables(pinnedTables));
+  }, [pinnedTables, pinnedTablesStorageKey]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !activeSqlTab) return;
+    const currentValue = editor.getValue?.();
+    if (typeof currentValue === 'string' && currentValue !== activeSqlTab.query) {
+      editor.setValue(activeSqlTab.query);
+    }
+  }, [activeSqlTab]);
 
   useEffect(
     () => () => {
@@ -197,6 +256,51 @@ export function App() {
     },
     [],
   );
+
+  const updateActiveTabQuery = useCallback(
+    (value: string) => {
+      if (!activeSqlTab) return;
+      setSqlWorkspace((current) => updateTabQueryInWorkspace(current, activeSqlTab.id, value));
+    },
+    [activeSqlTab],
+  );
+
+  const createNewSqlTab = useCallback(() => {
+    setSqlWorkspace((current) => {
+      const newTab = createTab('', current.tabs.length, getNextTabName(current.tabs));
+      return {
+        tabs: [...current.tabs, newTab],
+        activeTabId: newTab.id,
+      };
+    });
+    setActiveView('sql');
+    requestAnimationFrame(() => editorRef.current?.focus());
+  }, []);
+
+  const closeSqlTab = useCallback(
+    (tabId?: string) => {
+      const targetTabId = tabId ?? activeSqlTab?.id;
+      if (!targetTabId) return;
+      setSqlWorkspace((current) => closeTabInWorkspace(current, targetTabId, DEFAULT_QUERY));
+      if (renamingTabId === targetTabId) {
+        setRenamingTabId(null);
+        setTabNameDraft('');
+      }
+    },
+    [activeSqlTab?.id, renamingTabId],
+  );
+
+  const startRenameTab = useCallback((tabId: string, currentName: string) => {
+    setRenamingTabId(tabId);
+    setTabNameDraft(currentName);
+  }, []);
+
+  const commitRenameTab = useCallback(() => {
+    if (!renamingTabId) return;
+    setSqlWorkspace((current) => renameTabInWorkspace(current, renamingTabId, tabNameDraft));
+    setRenamingTabId(null);
+    setTabNameDraft('');
+  }, [renamingTabId, tabNameDraft]);
 
   const selectTable = async (tableName: string) => {
     setActiveView('table');
@@ -234,29 +338,66 @@ export function App() {
   }, []);
 
   const getEditorContents = useCallback(() => {
-    return editorRef.current?.getValue?.() ?? query;
-  }, [query]);
+    return editorRef.current?.getValue?.() ?? activeSqlTab?.query ?? '';
+  }, [activeSqlTab?.query]);
+
+  const tableMatchesFilter = useMemo(() => getTableFilterMatcher(tableFilter), [tableFilter]);
+
+  const filteredTables = useMemo(() => tables.filter(tableMatchesFilter), [tableMatchesFilter, tables]);
+
+  const pinnedTableSet = useMemo(() => new Set(pinnedTables), [pinnedTables]);
+
+  const pinnedVisibleTables = useMemo(
+    () => filteredTables.filter((table) => pinnedTableSet.has(table.tableName)),
+    [filteredTables, pinnedTableSet],
+  );
+
+  const unpinnedVisibleTables = useMemo(
+    () => filteredTables.filter((table) => !pinnedTableSet.has(table.tableName)),
+    [filteredTables, pinnedTableSet],
+  );
+
+  const sidebarNavItems = useMemo<SidebarNavItem[]>(() => {
+    const items: SidebarNavItem[] = [{ id: 'sql', type: 'sql' }];
+    pinnedVisibleTables.forEach((table) => {
+      items.push({ id: `table:${table.tableName}`, type: 'table', tableName: table.tableName });
+    });
+    unpinnedVisibleTables.forEach((table) => {
+      items.push({ id: `table:${table.tableName}`, type: 'table', tableName: table.tableName });
+    });
+    return items;
+  }, [pinnedVisibleTables, unpinnedVisibleTables]);
 
   const focusSelectedSidebarItem = useCallback(() => {
     if (!tableListRef.current) return;
-    const selectedIndex =
-      activeView === 'sql' ? 0 : Math.max(tables.findIndex((table) => table.tableName === selectedTable), 0) + 1;
-    const target = tableListRef.current.querySelector<HTMLButtonElement>(`button[data-sidebar-idx="${selectedIndex}"]`);
+    const selectedIndex = sidebarNavItems.findIndex((item) => {
+      if (activeView === 'sql') return item.type === 'sql';
+      return item.type === 'table' && item.tableName === selectedTable;
+    });
+    const targetIndex = selectedIndex >= 0 ? selectedIndex : 0;
+    const target = tableListRef.current.querySelector<HTMLButtonElement>(`button[data-sidebar-idx="${targetIndex}"]`);
     target?.focus();
-  }, [activeView, selectedTable, tables]);
+  }, [activeView, selectedTable, sidebarNavItems]);
 
   const getQueryToExecute = useCallback(() => {
-    if (!editorRef.current) return query;
+    const activeQuery = activeSqlTab?.query ?? '';
+    if (!editorRef.current) return activeQuery;
     const selection = editorRef.current.getSelection?.();
     if (selection && typeof selection.isEmpty === 'function' && !selection.isEmpty()) {
       const selectedQuery = editorRef.current.getModel?.()?.getValueInRange?.(selection) ?? '';
       if (selectedQuery.trim()) return selectedQuery;
     }
     return getEditorContents();
-  }, [getEditorContents, query]);
+  }, [activeSqlTab?.query, getEditorContents]);
 
   const hasExecutableQuery = useMemo(() => getQueryToExecute().trim().length > 0, [getQueryToExecute]);
   const exportInProgress = exportState.status === 'preparing' || exportState.status === 'streaming';
+
+  const togglePin = useCallback((tableName: string) => {
+    setPinnedTables((current) =>
+      current.includes(tableName) ? current.filter((name) => name !== tableName) : [...current, tableName],
+    );
+  }, []);
 
   const getExportLimit = (): number | undefined => {
     if (exportLimitMode === 'none') return undefined;
@@ -433,8 +574,8 @@ export function App() {
     setQueryId(id);
 
     const editorContents = getEditorContents();
-    if (queryStorageKey) {
-      localStorage.setItem(queryStorageKey, editorContents);
+    if (activeSqlTab) {
+      setSqlWorkspace((current) => updateTabQueryInWorkspace(current, activeSqlTab.id, editorContents));
     }
 
     try {
@@ -448,7 +589,7 @@ export function App() {
       setQueryId(null);
       focusEditor();
     }
-  }, [executing, focusEditor, getEditorContents, getQueryToExecute, queryStorageKey]);
+  }, [activeSqlTab, executing, focusEditor, getEditorContents, getQueryToExecute]);
 
   const cancelQuery = async () => {
     if (!queryId) return;
@@ -481,6 +622,21 @@ export function App() {
         focusSelectedSidebarItem();
         return;
       }
+      if (key === 't' && !event.shiftKey) {
+        event.preventDefault();
+        createNewSqlTab();
+        return;
+      }
+      if (key === 'w') {
+        event.preventDefault();
+        closeSqlTab();
+        return;
+      }
+      if (key === 'enter') {
+        event.preventDefault();
+        void executeQuery();
+        return;
+      }
       if (key === '1') {
         event.preventDefault();
         setActiveTab('data');
@@ -499,7 +655,7 @@ export function App() {
 
     window.addEventListener('keydown', handleKeydown);
     return () => window.removeEventListener('keydown', handleKeydown);
-  }, [focusEditor, focusSelectedSidebarItem]);
+  }, [closeSqlTab, createNewSqlTab, executeQuery, focusEditor, focusSelectedSidebarItem]);
 
   const selectSqlView = useCallback(() => {
     setActiveView('sql');
@@ -507,7 +663,7 @@ export function App() {
 
   const handleSidebarNav = useCallback(
     (event: ReactKeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
-      const maxIndex = tables.length;
+      const maxIndex = sidebarNavItems.length - 1;
 
       const focusItemByIndex = (index: number) => {
         if (!tableListRef.current) return;
@@ -516,13 +672,15 @@ export function App() {
       };
 
       const activateIndex = (index: number) => {
-        if (index === 0) {
+        const target = sidebarNavItems[index];
+        if (!target) return;
+        if (target.type === 'sql') {
           selectSqlView();
           return;
         }
-        const target = tables[index - 1];
-        if (!target) return;
-        void selectTable(target.tableName);
+        if (target.tableName) {
+          void selectTable(target.tableName);
+        }
       };
 
       if (event.key === 'ArrowDown') {
@@ -542,7 +700,7 @@ export function App() {
         activateIndex(currentIndex);
       }
     },
-    [selectSqlView, selectTable, tables],
+    [selectSqlView, selectTable, sidebarNavItems],
   );
 
   return (
@@ -566,6 +724,15 @@ export function App() {
           <p className="dv-section-meta">{tables.length.toLocaleString()} total</p>
         </div>
 
+        <label className="dv-sidebar-search-label" htmlFor="table-search">Filter tables</label>
+        <input
+          id="table-search"
+          className="dv-input"
+          value={tableFilter}
+          onChange={(event) => setTableFilter(event.target.value)}
+          placeholder="Search table names"
+        />
+
         <div className="space-y-2" ref={tableListRef} role="listbox" aria-label="Database navigation">
           <button
             className={`dv-input dv-nav-query text-left ${activeView === 'sql' ? 'ring-1 ring-accent' : ''}`}
@@ -577,6 +744,7 @@ export function App() {
           >
             SQL Query
           </button>
+
           {tablesLoading && <p className="dv-empty">Loading tables...</p>}
           {tablesError && (
             <div className="dv-state dv-state-error">
@@ -586,24 +754,69 @@ export function App() {
               </button>
             </div>
           )}
-          {!tablesLoading && !tablesError && tables.length === 0 && (
-            <p className="dv-empty">No tables available.</p>
+          {!tablesLoading && !tablesError && filteredTables.length === 0 && (
+            <p className="dv-empty">No matching tables.</p>
           )}
+
+          {!tablesLoading && !tablesError && pinnedVisibleTables.length > 0 && (
+            <div className="dv-sidebar-subsection">
+              <p className="dv-section-meta">Pinned</p>
+              {pinnedVisibleTables.map((table, index) => {
+                const itemIndex = sidebarNavItems.findIndex((item) => item.id === `table:${table.tableName}`);
+                return (
+                  <div className="dv-nav-row" key={`pinned-${table.tableName}`}>
+                    <button
+                      className={`dv-input text-left ${activeView === 'table' && selectedTable === table.tableName ? 'ring-1 ring-accent' : ''}`}
+                      onClick={() => void selectTable(table.tableName)}
+                      onKeyDown={(event) => handleSidebarNav(event, itemIndex)}
+                      data-sidebar-idx={itemIndex}
+                      role="option"
+                      aria-selected={activeView === 'table' && selectedTable === table.tableName}
+                    >
+                      {table.tableName}
+                    </button>
+                    <button
+                      className="dv-pin-btn"
+                      onClick={() => togglePin(table.tableName)}
+                      aria-label={`Unpin ${table.tableName}`}
+                      title="Unpin table"
+                    >
+                      ★
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {!tablesLoading &&
             !tablesError &&
-            tables.map((table, idx) => (
-              <button
-                key={table.tableName}
-                className={`dv-input text-left ${activeView === 'table' && selectedTable === table.tableName ? 'ring-1 ring-accent' : ''}`}
-                onClick={() => void selectTable(table.tableName)}
-                onKeyDown={(event) => handleSidebarNav(event, idx + 1)}
-                data-sidebar-idx={idx + 1}
-                role="option"
-                aria-selected={activeView === 'table' && selectedTable === table.tableName}
-              >
-                {table.tableName}
-              </button>
-            ))}
+            unpinnedVisibleTables.map((table) => {
+              const itemIndex = sidebarNavItems.findIndex((item) => item.id === `table:${table.tableName}`);
+              const isPinned = pinnedTableSet.has(table.tableName);
+              return (
+                <div className="dv-nav-row" key={table.tableName}>
+                  <button
+                    className={`dv-input text-left ${activeView === 'table' && selectedTable === table.tableName ? 'ring-1 ring-accent' : ''}`}
+                    onClick={() => void selectTable(table.tableName)}
+                    onKeyDown={(event) => handleSidebarNav(event, itemIndex)}
+                    data-sidebar-idx={itemIndex}
+                    role="option"
+                    aria-selected={activeView === 'table' && selectedTable === table.tableName}
+                  >
+                    {table.tableName}
+                  </button>
+                  <button
+                    className="dv-pin-btn"
+                    onClick={() => togglePin(table.tableName)}
+                    aria-label={isPinned ? `Unpin ${table.tableName}` : `Pin ${table.tableName}`}
+                    title={isPinned ? 'Unpin table' : 'Pin table'}
+                  >
+                    {isPinned ? '★' : '☆'}
+                  </button>
+                </div>
+              );
+            })}
         </div>
       </aside>
 
@@ -683,8 +896,8 @@ export function App() {
             <section className="dv-card dv-card-pad dv-query-section">
               <div className="dv-query-toolbar">
                 <div className="dv-section-head">
-                  <h2 className="dv-section-title">SQL Query</h2>
-                  <p className="dv-section-meta">Cmd/Ctrl+Enter runs selected SQL</p>
+                  <h2 className="dv-section-title">SQL Query Workspace</h2>
+                  <p className="dv-section-meta">Cmd/Ctrl+T new tab • Cmd/Ctrl+W close tab • Cmd/Ctrl+Enter run</p>
                 </div>
                 <div className="dv-toolbar-actions">
                   <label className="dv-density-label" htmlFor="density-mode">Density</label>
@@ -701,7 +914,7 @@ export function App() {
                   <button
                     className="dv-btn-ghost"
                     onClick={() => {
-                      setQuery('');
+                      updateActiveTabQuery('');
                       focusEditor();
                     }}
                   >
@@ -725,26 +938,87 @@ export function App() {
                 </div>
               </div>
 
+              <div className="dv-sql-tabs" role="tablist" aria-label="SQL tabs">
+                {sqlWorkspace.tabs.map((tab) => {
+                  const isActive = tab.id === activeSqlTab?.id;
+                  const isRenaming = tab.id === renamingTabId;
+                  return (
+                    <div key={tab.id} className={`dv-sql-tab ${isActive ? 'is-active' : ''}`}>
+                      <button
+                        role="tab"
+                        aria-selected={isActive}
+                        className="dv-sql-tab-main"
+                        onClick={() => {
+                          setActiveView('sql');
+                          setSqlWorkspace((current) => ({ ...current, activeTabId: tab.id }));
+                        }}
+                        onDoubleClick={() => startRenameTab(tab.id, tab.name)}
+                      >
+                        {isRenaming ? (
+                          <input
+                            className="dv-sql-tab-input"
+                            value={tabNameDraft}
+                            onChange={(event) => setTabNameDraft(event.target.value)}
+                            onBlur={commitRenameTab}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                commitRenameTab();
+                              }
+                              if (event.key === 'Escape') {
+                                event.preventDefault();
+                                setRenamingTabId(null);
+                                setTabNameDraft('');
+                              }
+                            }}
+                            autoFocus
+                          />
+                        ) : (
+                          <span className="truncate">{tab.name}</span>
+                        )}
+                      </button>
+                      <button
+                        className="dv-sql-tab-close"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          closeSqlTab(tab.id);
+                        }}
+                        aria-label={`Close ${tab.name}`}
+                        title="Close tab"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+                <button className="dv-sql-tab-add" onClick={createNewSqlTab} aria-label="New SQL tab" title="New SQL tab">
+                  +
+                </button>
+              </div>
+
               <div className="dv-editor-shell">
                 <Editor
                   height={density === 'compact' ? '220px' : '260px'}
                   defaultLanguage="sql"
-                  value={query}
-                  onChange={(v) => setQuery(v ?? '')}
+                  value={activeSqlTab?.query ?? ''}
+                  onChange={(v) => updateActiveTabQuery(v ?? '')}
                   theme="vs-dark"
                   options={{ minimap: { enabled: false }, fontSize: 13, scrollBeyondLastLine: false }}
                   onMount={(editor, monaco) => {
                     editorRef.current = editor;
-                    if (editor.getValue() !== query) {
-                      editor.setValue(query);
+                    if (editor.getValue() !== (activeSqlTab?.query ?? '')) {
+                      editor.setValue(activeSqlTab?.query ?? '');
                     }
                     editor.focus();
                     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
                       void executeQuery();
                     });
-                  }}
-                  onUnmount={() => {
-                    editorRef.current = null;
+                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyT, () => {
+                      createNewSqlTab();
+                    });
+                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => {
+                      closeSqlTab();
+                    });
                   }}
                 />
               </div>
@@ -841,42 +1115,91 @@ function DataTable({
   rowCount?: number;
   density: DensityMode;
 }) {
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const resizingRef = useRef<{ key: string; startX: number; startWidth: number } | null>(null);
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      const activeResize = resizingRef.current;
+      if (!activeResize) return;
+      const nextWidth = Math.max(80, activeResize.startWidth + (event.clientX - activeResize.startX));
+      setColumnWidths((current) => ({ ...current, [activeResize.key]: nextWidth }));
+    };
+
+    const handleMouseUp = () => {
+      resizingRef.current = null;
+      document.body.classList.remove('dv-col-resizing');
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      document.body.classList.remove('dv-col-resizing');
+    };
+  }, []);
+
   if (!rows?.length) return <p className="dv-empty">No rows</p>;
   const columns = Object.keys(rows[0] ?? {});
   const totalRows = rowCount ?? rows.length;
 
   return (
     <div className="dv-table-shell" data-density={density}>
-      <table className="dv-table">
-        <thead>
-          <tr>
-            <th className="dv-table-index">#</th>
-            {columns.map((column) => (
-              <th key={column} className="text-left">{column}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, idx) => (
-            <tr key={idx}>
-              <td className="dv-table-index">{idx + 1}</td>
+      <div className="dv-table-status">
+        <span>{totalRows.toLocaleString()} rows</span>
+        <span>{columns.length.toLocaleString()} columns</span>
+      </div>
+      <div className="dv-table-scroll">
+        <table className="dv-table">
+          <thead>
+            <tr>
+              <th className="dv-table-index">#</th>
               {columns.map((column) => (
-                <td
-                  key={column}
-                  className="dv-table-cell"
-                  title="Click to copy"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(formatCellValue(row[column]));
-                  }}
-                >
-                  {renderCell(row[column])}
-                </td>
+                <th key={column} className="text-left" style={columnWidths[column] ? { width: `${columnWidths[column]}px` } : undefined}>
+                  <div className="dv-th-content">
+                    <span>{column}</span>
+                    <span
+                      className="dv-col-resizer"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        const currentWidth = (event.currentTarget.parentElement?.parentElement as HTMLElement | null)?.offsetWidth ?? 140;
+                        resizingRef.current = {
+                          key: column,
+                          startX: event.clientX,
+                          startWidth: currentWidth,
+                        };
+                        document.body.classList.add('dv-col-resizing');
+                      }}
+                    />
+                  </div>
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="dv-table-footer">{totalRows.toLocaleString()} rows</p>
+          </thead>
+          <tbody>
+            {rows.map((row, idx) => (
+              <tr key={idx}>
+                <td className="dv-table-index">{idx + 1}</td>
+                {columns.map((column) => (
+                  <td
+                    key={column}
+                    className="dv-table-cell"
+                    style={columnWidths[column] ? { width: `${columnWidths[column]}px` } : undefined}
+                    title="Click to copy"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(formatCellValue(row[column]));
+                    }}
+                  >
+                    {renderCell(row[column])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -13,6 +13,11 @@
     color: var(--color-text);
     font-family: var(--font-ui);
   }
+
+  body.dv-col-resizing {
+    cursor: col-resize;
+    user-select: none;
+  }
 }
 
 @layer components {
@@ -29,7 +34,7 @@
   .dv-btn-ghost { @apply px-3 py-2 rounded-md bg-muted text-text text-sm hover:opacity-90; }
   .dv-btn-danger { @apply px-3 py-2 rounded-md bg-danger text-white text-sm font-medium hover:opacity-90; }
   .dv-input { @apply w-full bg-muted border rounded-md px-3 py-2 text-sm text-text; }
-  .dv-nav-query { @apply mb-3; }
+  .dv-nav-query { @apply mb-1; }
   .dv-select { @apply bg-muted border rounded-md px-2 py-2 text-sm text-text; }
   .dv-density-label { @apply text-xs text-subtle; }
   .dv-empty { @apply text-subtle text-sm p-4; }
@@ -47,16 +52,43 @@
   .dv-modal-field { @apply flex flex-col gap-2 text-sm text-subtle; }
   .dv-modal-check { @apply flex items-center gap-2 text-sm text-subtle; }
   .dv-modal-actions { @apply flex flex-wrap gap-2; }
-  .dv-table-shell { @apply border rounded-md overflow-auto; }
-  .dv-table { @apply w-full text-sm border-collapse; }
-  .dv-table thead { @apply bg-muted text-subtle sticky top-0 z-10; }
-  .dv-table th { @apply px-3 py-2 border-b font-medium; }
+
+  .dv-sidebar-search-label { @apply text-xs text-subtle mb-1 block; }
+  .dv-sidebar-subsection { @apply space-y-1 pt-2; }
+  .dv-nav-row { @apply flex items-center gap-1; }
+  .dv-pin-btn {
+    @apply h-9 min-w-9 px-2 rounded-md border bg-muted text-subtle hover:text-text hover:border-accent;
+    font-size: 0.95rem;
+    line-height: 1;
+  }
+
+  .dv-sql-tabs { @apply flex items-stretch gap-1 overflow-x-auto pb-1; }
+  .dv-sql-tab { @apply flex items-center rounded-md border bg-muted min-w-0; }
+  .dv-sql-tab.is-active { @apply border-accent; }
+  .dv-sql-tab-main { @apply text-sm px-3 py-2 min-w-[120px] text-left text-subtle hover:text-text; }
+  .dv-sql-tab.is-active .dv-sql-tab-main { @apply text-text; }
+  .dv-sql-tab-close { @apply h-full px-2 text-subtle hover:text-danger; }
+  .dv-sql-tab-add { @apply px-3 py-2 rounded-md border bg-muted text-sm hover:border-accent; }
+  .dv-sql-tab-input { @apply w-full bg-panel border rounded-sm px-1 py-0.5 text-xs text-text; }
+
+  .dv-table-shell { @apply border rounded-md overflow-hidden; }
+  .dv-table-status {
+    @apply sticky top-0 z-20 bg-panel border-b text-xs text-subtle px-3 py-2 flex items-center justify-between;
+  }
+  .dv-table-scroll { @apply overflow-auto max-h-[65vh]; }
+  .dv-table { @apply w-full text-sm border-collapse table-fixed; }
+  .dv-table th { @apply px-3 py-2 border-b font-medium bg-muted text-subtle sticky top-[33px] z-10; }
   .dv-table td { @apply px-3 py-2 border-b border-border font-mono text-xs align-top; }
   .dv-table tr:hover td { @apply bg-muted; }
   .dv-table-index { @apply text-subtle text-right w-12 min-w-12 bg-panel font-mono text-xs; }
   .dv-table-cell { @apply cursor-copy whitespace-pre-wrap break-words; }
-  .dv-table-footer { @apply text-xs text-subtle p-2; }
   .dv-cell-null { @apply text-subtle italic; }
+
+  .dv-th-content { @apply relative pr-3 truncate; }
+  .dv-col-resizer {
+    @apply absolute right-0 top-0 h-full w-2 cursor-col-resize;
+    transform: translateX(50%);
+  }
 
   .dv-shell[data-density='compact'] .dv-sidebar { @apply p-3; }
   .dv-shell[data-density='compact'] .dv-main { @apply p-3 md:p-4 space-y-3; }
