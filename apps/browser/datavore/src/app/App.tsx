@@ -45,6 +45,22 @@ type ExportState = {
 const DEFAULT_QUERY = 'SELECT * FROM table_name LIMIT 100;';
 const QUERY_STORAGE_PREFIX = 'datavore-query';
 const DENSITY_STORAGE_KEY = 'datavore-density-mode';
+
+const getQueryStorageKeys = (dbInfo: DatabaseInfo | null): string[] => {
+  if (!dbInfo) return [];
+
+  const type = dbInfo.type ?? 'unknown';
+  const databaseName = dbInfo.databaseName ?? 'db';
+  const host = dbInfo.host ?? 'localhost';
+  const port = String(dbInfo.port ?? '');
+  const username = dbInfo.username ?? 'user';
+
+  const primary = `${QUERY_STORAGE_PREFIX}:${[type, host, port, databaseName, username].join(':')}`;
+  const legacyByDb = `${QUERY_STORAGE_PREFIX}:${type}:${databaseName}`;
+  const legacyByTypeOnly = `${QUERY_STORAGE_PREFIX}:${type}`;
+
+  return [primary, legacyByDb, legacyByTypeOnly];
+};
 const DEFAULT_EXPORT_LIMIT_MODE: ExportLimitMode = 'none';
 
 const DEFAULT_EXPORT_STATE: ExportState = {
@@ -120,16 +136,8 @@ export function App() {
   const exportQueryIdRef = useRef<string | null>(null);
   const exportCancelledByUserRef = useRef(false);
 
-  const connectionKey = useMemo(() => {
-    if (!dbInfo) return null;
-    return [
-      dbInfo.type ?? 'unknown',
-      dbInfo.host ?? 'localhost',
-      String(dbInfo.port ?? ''),
-      dbInfo.databaseName ?? 'db',
-      dbInfo.username ?? 'user',
-    ].join(':');
-  }, [dbInfo]);
+  const queryStorageKeys = useMemo(() => getQueryStorageKeys(dbInfo), [dbInfo]);
+  const queryStorageKey = queryStorageKeys[0] ?? null;
 
   const loadConnectionInfo = useCallback(async () => {
     try {
@@ -162,15 +170,20 @@ export function App() {
   }, [loadConnectionInfo, loadTables]);
 
   useEffect(() => {
-    if (!connectionKey) return;
-    const scopedKey = `${QUERY_STORAGE_PREFIX}:${connectionKey}`;
-    const scopedSaved = localStorage.getItem(scopedKey);
-    if (scopedSaved) {
-      setQuery(scopedSaved);
+    if (!queryStorageKeys.length) return;
+
+    for (const key of queryStorageKeys) {
+      const saved = localStorage.getItem(key);
+      if (!saved) continue;
+      setQuery(saved);
+      if (queryStorageKey && key !== queryStorageKey) {
+        localStorage.setItem(queryStorageKey, saved);
+      }
       return;
     }
+
     setQuery(DEFAULT_QUERY);
-  }, [connectionKey]);
+  }, [queryStorageKey, queryStorageKeys]);
 
   useEffect(() => {
     localStorage.setItem(DENSITY_STORAGE_KEY, density);
@@ -414,8 +427,8 @@ export function App() {
     setQueryId(id);
 
     const editorContents = editorRef.current?.getValue?.() ?? query;
-    if (connectionKey) {
-      localStorage.setItem(`${QUERY_STORAGE_PREFIX}:${connectionKey}`, editorContents);
+    if (queryStorageKey) {
+      localStorage.setItem(queryStorageKey, editorContents);
     }
 
     try {
@@ -429,7 +442,7 @@ export function App() {
       setQueryId(null);
       focusEditor();
     }
-  }, [connectionKey, executing, focusEditor, getQueryToExecute, query]);
+  }, [executing, focusEditor, getQueryToExecute, query, queryStorageKey]);
 
   const cancelQuery = async () => {
     if (!queryId) return;
