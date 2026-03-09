@@ -403,7 +403,8 @@ export function App() {
     try {
       const { data } = await api.executeQuery(queryToExecute, id);
       setResult(data);
-      localStorage.setItem(`datavore-query:${connectionKey}`, query);
+      const editorContents = editorRef.current?.getValue?.() ?? query;
+      localStorage.setItem(`datavore-query:${connectionKey}`, editorContents);
     } catch (error) {
       setResult({ rows: [], rowCount: 0, elapsedMs: 0 });
       setResultError(getErrorMessage(error, 'Failed to execute query.'));
