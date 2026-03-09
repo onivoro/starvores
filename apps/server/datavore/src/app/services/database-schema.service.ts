@@ -40,6 +40,9 @@ export interface DatabaseInfo {
   type: string;
   isConnected: boolean;
   databaseName?: string;
+  host?: string;
+  port?: number;
+  username?: string;
 }
 
 @Injectable()
@@ -52,12 +55,19 @@ export class DatabaseSchemaService {
     try {
       const dbType = dataSource.options.type;
       const isConnected = dataSource.isInitialized;
-      const databaseName = (dataSource.options as any).database;
+      const options = dataSource.options as any;
+      const databaseName = options.database;
+      const host = options.host;
+      const port = options.port;
+      const username = options.username;
 
       return {
         type: dbType,
         isConnected,
-        databaseName
+        databaseName,
+        host,
+        port: typeof port === 'number' ? port : undefined,
+        username,
       };
     } catch (error) {
       return {

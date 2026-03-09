@@ -22,6 +22,9 @@ export interface DatabaseInfo {
   type: string;
   isConnected: boolean;
   databaseName?: string;
+  host?: string;
+  port?: number;
+  username?: string;
 }
 
 export interface QueryJsonlExportRequest {

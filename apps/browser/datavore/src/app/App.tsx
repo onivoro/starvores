@@ -43,7 +43,7 @@ type ExportState = {
 };
 
 const DEFAULT_QUERY = 'SELECT * FROM table_name LIMIT 100;';
-const QUERY_STORAGE_KEY = 'datavore-query';
+const QUERY_STORAGE_PREFIX = 'datavore-query';
 const DENSITY_STORAGE_KEY = 'datavore-density-mode';
 const DEFAULT_EXPORT_LIMIT_MODE: ExportLimitMode = 'none';
 
@@ -122,7 +122,13 @@ export function App() {
 
   const connectionKey = useMemo(() => {
     if (!dbInfo) return null;
-    return `${dbInfo.type}:${dbInfo.databaseName ?? 'db'}`;
+    return [
+      dbInfo.type ?? 'unknown',
+      dbInfo.host ?? 'localhost',
+      String(dbInfo.port ?? ''),
+      dbInfo.databaseName ?? 'db',
+      dbInfo.username ?? 'user',
+    ].join(':');
   }, [dbInfo]);
 
   const loadConnectionInfo = useCallback(async () => {
@@ -156,24 +162,14 @@ export function App() {
   }, [loadConnectionInfo, loadTables]);
 
   useEffect(() => {
-    const globalSaved = localStorage.getItem(QUERY_STORAGE_KEY);
-    if (globalSaved) setQuery(globalSaved);
-  }, []);
-
-  useEffect(() => {
     if (!connectionKey) return;
-    const scopedKey = `${QUERY_STORAGE_KEY}:${connectionKey}`;
+    const scopedKey = `${QUERY_STORAGE_PREFIX}:${connectionKey}`;
     const scopedSaved = localStorage.getItem(scopedKey);
     if (scopedSaved) {
       setQuery(scopedSaved);
-      localStorage.setItem(QUERY_STORAGE_KEY, scopedSaved);
       return;
     }
-
-    const globalSaved = localStorage.getItem(QUERY_STORAGE_KEY);
-    if (globalSaved) {
-      localStorage.setItem(scopedKey, globalSaved);
-    }
+    setQuery(DEFAULT_QUERY);
   }, [connectionKey]);
 
   useEffect(() => {
@@ -418,9 +414,8 @@ export function App() {
     setQueryId(id);
 
     const editorContents = editorRef.current?.getValue?.() ?? query;
-    localStorage.setItem(QUERY_STORAGE_KEY, editorContents);
     if (connectionKey) {
-      localStorage.setItem(`${QUERY_STORAGE_KEY}:${connectionKey}`, editorContents);
+      localStorage.setItem(`${QUERY_STORAGE_PREFIX}:${connectionKey}`, editorContents);
     }
 
     try {
