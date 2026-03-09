@@ -46,8 +46,8 @@ const DEFAULT_QUERY = 'SELECT * FROM table_name LIMIT 100;';
 const QUERY_STORAGE_PREFIX = 'datavore-query';
 const DENSITY_STORAGE_KEY = 'datavore-density-mode';
 
-const getQueryStorageKeys = (dbInfo: DatabaseInfo | null): string[] => {
-  if (!dbInfo) return [];
+const getQueryStorageKey = (dbInfo: DatabaseInfo | null): string | null => {
+  if (!dbInfo) return null;
 
   const type = dbInfo.type ?? 'unknown';
   const databaseName = dbInfo.databaseName ?? 'db';
@@ -55,11 +55,7 @@ const getQueryStorageKeys = (dbInfo: DatabaseInfo | null): string[] => {
   const port = String(dbInfo.port ?? '');
   const username = dbInfo.username ?? 'user';
 
-  const primary = `${QUERY_STORAGE_PREFIX}:${[type, host, port, databaseName, username].join(':')}`;
-  const legacyByDb = `${QUERY_STORAGE_PREFIX}:${type}:${databaseName}`;
-  const legacyByTypeOnly = `${QUERY_STORAGE_PREFIX}:${type}`;
-
-  return [primary, legacyByDb, legacyByTypeOnly];
+  return `${QUERY_STORAGE_PREFIX}:${[type, host, port, databaseName, username].join(':')}`;
 };
 const DEFAULT_EXPORT_LIMIT_MODE: ExportLimitMode = 'none';
 
@@ -136,8 +132,7 @@ export function App() {
   const exportQueryIdRef = useRef<string | null>(null);
   const exportCancelledByUserRef = useRef(false);
 
-  const queryStorageKeys = useMemo(() => getQueryStorageKeys(dbInfo), [dbInfo]);
-  const queryStorageKey = queryStorageKeys[0] ?? null;
+  const queryStorageKey = useMemo(() => getQueryStorageKey(dbInfo), [dbInfo]);
 
   const loadConnectionInfo = useCallback(async () => {
     try {
@@ -170,20 +165,16 @@ export function App() {
   }, [loadConnectionInfo, loadTables]);
 
   useEffect(() => {
-    if (!queryStorageKeys.length) return;
+    if (!queryStorageKey) return;
 
-    for (const key of queryStorageKeys) {
-      const saved = localStorage.getItem(key);
-      if (!saved) continue;
+    const saved = localStorage.getItem(queryStorageKey);
+    if (saved) {
       setQuery(saved);
-      if (queryStorageKey && key !== queryStorageKey) {
-        localStorage.setItem(queryStorageKey, saved);
-      }
       return;
     }
 
     setQuery(DEFAULT_QUERY);
-  }, [queryStorageKey, queryStorageKeys]);
+  }, [queryStorageKey]);
 
   useEffect(() => {
     localStorage.setItem(DENSITY_STORAGE_KEY, density);
