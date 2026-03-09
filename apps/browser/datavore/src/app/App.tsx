@@ -70,6 +70,11 @@ const DENSITY_STORAGE_KEY = 'datavore-density-mode';
 const getQueryStorageKey = (dbInfo: DatabaseInfo | null): string | null => {
   if (!dbInfo) return null;
 
+  const stableConnectionKey = dbInfo.connectionKey?.trim();
+  if (stableConnectionKey) {
+    return `${QUERY_STORAGE_PREFIX}:${stableConnectionKey}`;
+  }
+
   const type = dbInfo.type ?? 'unknown';
   const databaseName = dbInfo.databaseName ?? 'db';
   const host = dbInfo.host ?? 'localhost';
@@ -147,6 +152,7 @@ export function App() {
   const [queryId, setQueryId] = useState<string | null>(null);
   const [sqlWorkspace, setSqlWorkspace] = useState<SqlWorkspaceState>(() => loadWorkspaceState(null, DEFAULT_QUERY));
   const [workspaceHydratedForKey, setWorkspaceHydratedForKey] = useState<string | null>(null);
+  const [canPersistWorkspace, setCanPersistWorkspace] = useState(false);
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [tabNameDraft, setTabNameDraft] = useState('');
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -160,6 +166,7 @@ export function App() {
     return saved === 'compact' ? 'compact' : 'comfortable';
   });
   const editorRef = useRef<any>(null);
+  const [editorReady, setEditorReady] = useState(false);
   const tableListRef = useRef<HTMLDivElement | null>(null);
   const exportAbortControllerRef = useRef<AbortController | null>(null);
   const exportQueryIdRef = useRef<string | null>(null);
@@ -173,6 +180,7 @@ export function App() {
     () => sqlWorkspace.tabs.find((tab) => tab.id === sqlWorkspace.activeTabId) ?? sqlWorkspace.tabs[0],
     [sqlWorkspace.activeTabId, sqlWorkspace.tabs],
   );
+
 
   const loadConnectionInfo = useCallback(async () => {
     try {
@@ -205,16 +213,34 @@ export function App() {
   }, [loadConnectionInfo, loadTables]);
 
   useEffect(() => {
+    setCanPersistWorkspace(false);
+
     if (!tabsStorageKey) {
       setSqlWorkspace(loadWorkspaceState(null, DEFAULT_QUERY));
       setWorkspaceHydratedForKey(null);
+      requestAnimationFrame(() => setCanPersistWorkspace(true));
       return;
     }
 
     const legacyQuery = queryStorageKey ? localStorage.getItem(queryStorageKey) : null;
     const rawWorkspace = localStorage.getItem(tabsStorageKey);
-    setSqlWorkspace(loadWorkspaceState(rawWorkspace, legacyQuery || DEFAULT_QUERY));
+    const hydratedWorkspace = loadWorkspaceState(rawWorkspace, legacyQuery || DEFAULT_QUERY);
+    setSqlWorkspace(hydratedWorkspace);
     setWorkspaceHydratedForKey(tabsStorageKey);
+
+    const hydratedActiveTab = hydratedWorkspace.tabs.find((tab) => tab.id === hydratedWorkspace.activeTabId) ?? hydratedWorkspace.tabs[0];
+    if (hydratedActiveTab?.query) {
+      requestAnimationFrame(() => {
+        const editor = editorRef.current;
+        if (!editor) return;
+        const currentValue = editor.getValue?.();
+        if (typeof currentValue === 'string' && currentValue !== hydratedActiveTab.query) {
+          editor.setValue(hydratedActiveTab.query);
+        }
+      });
+    }
+
+    requestAnimationFrame(() => setCanPersistWorkspace(true));
   }, [queryStorageKey, tabsStorageKey]);
 
   useEffect(() => {
@@ -231,13 +257,13 @@ export function App() {
   }, [density]);
 
   useEffect(() => {
-    if (!tabsStorageKey || workspaceHydratedForKey !== tabsStorageKey) return;
+    if (!canPersistWorkspace || !tabsStorageKey || workspaceHydratedForKey !== tabsStorageKey) return;
 
     localStorage.setItem(tabsStorageKey, serializeWorkspaceState(sqlWorkspace));
     if (queryStorageKey && activeSqlTab) {
       localStorage.setItem(queryStorageKey, activeSqlTab.query);
     }
-  }, [activeSqlTab, queryStorageKey, sqlWorkspace, tabsStorageKey, workspaceHydratedForKey]);
+  }, [activeSqlTab, canPersistWorkspace, queryStorageKey, sqlWorkspace, tabsStorageKey, workspaceHydratedForKey]);
 
   useEffect(() => {
     if (!pinnedTablesStorageKey) return;
@@ -245,13 +271,22 @@ export function App() {
   }, [pinnedTables, pinnedTablesStorageKey]);
 
   useEffect(() => {
+    if (!editorReady) return;
     const editor = editorRef.current;
     if (!editor || !activeSqlTab) return;
     const currentValue = editor.getValue?.();
     if (typeof currentValue === 'string' && currentValue !== activeSqlTab.query) {
       editor.setValue(activeSqlTab.query);
     }
-  }, [activeSqlTab]);
+  }, [activeSqlTab, editorReady]);
+
+  useEffect(() => {
+    if (!activeSqlTab || !queryStorageKey) return;
+    const persistedQuery = localStorage.getItem(queryStorageKey);
+    if (!persistedQuery || persistedQuery === activeSqlTab.query) return;
+
+    setSqlWorkspace((current) => updateTabQueryInWorkspace(current, activeSqlTab.id, persistedQuery));
+  }, [activeSqlTab, queryStorageKey]);
 
   useEffect(
     () => () => {
@@ -1009,6 +1044,7 @@ export function App() {
                   options={{ minimap: { enabled: false }, fontSize: 13, scrollBeyondLastLine: false }}
                   onMount={(editor, monaco) => {
                     editorRef.current = editor;
+                    setEditorReady(true);
                     if (editor.getValue() !== (activeSqlTab?.query ?? '')) {
                       editor.setValue(activeSqlTab?.query ?? '');
                     }
@@ -1022,6 +1058,10 @@ export function App() {
                     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => {
                       closeSqlTab();
                     });
+                  }}
+                  onUnmount={() => {
+                    editorRef.current = null;
+                    setEditorReady(false);
                   }}
                 />
               </div>

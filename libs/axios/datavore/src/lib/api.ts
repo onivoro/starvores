@@ -25,6 +25,7 @@ export interface DatabaseInfo {
   host?: string;
   port?: number;
   username?: string;
+  connectionKey?: string;
 }
 
 export interface QueryJsonlExportRequest {

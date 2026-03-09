@@ -43,6 +43,7 @@ export interface DatabaseInfo {
   host?: string;
   port?: number;
   username?: string;
+  connectionKey?: string;
 }
 
 @Injectable()
@@ -61,13 +62,20 @@ export class DatabaseSchemaService {
       const port = options.port;
       const username = options.username;
 
+      const normalizedHost = host || 'localhost';
+      const normalizedPort = typeof port === 'number' ? port : undefined;
+      const normalizedUser = username || 'user';
+      const normalizedDatabase = databaseName || 'db';
+      const connectionKey = [dbType || 'unknown', normalizedHost, String(normalizedPort ?? ''), normalizedDatabase, normalizedUser].join(':');
+
       return {
         type: dbType,
         isConnected,
         databaseName,
         host,
-        port: typeof port === 'number' ? port : undefined,
+        port: normalizedPort,
         username,
+        connectionKey,
       };
     } catch (error) {
       return {
