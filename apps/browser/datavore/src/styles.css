@@ -18,6 +18,11 @@
     cursor: col-resize;
     user-select: none;
   }
+
+  body.dv-split-resizing {
+    cursor: row-resize;
+    user-select: none;
+  }
 }
 
 @layer components {
@@ -33,6 +38,8 @@
   .dv-btn { @apply px-3 py-2 rounded-md bg-accent text-white text-sm font-medium hover:opacity-90 disabled:opacity-50; }
   .dv-btn-ghost { @apply px-3 py-2 rounded-md bg-muted text-text text-sm hover:opacity-90; }
   .dv-btn-danger { @apply px-3 py-2 rounded-md bg-danger text-white text-sm font-medium hover:opacity-90; }
+  .dv-btn-sm { @apply px-2 py-1 rounded-md text-xs; }
+  .dv-btn-icon { @apply px-2 py-2 rounded-md bg-muted text-subtle hover:text-text text-sm; }
   .dv-input { @apply w-full bg-muted border rounded-md px-3 py-2 text-sm text-text; }
   .dv-nav-query { @apply mb-1; }
   .dv-select { @apply bg-muted border rounded-md px-2 py-2 text-sm text-text; }
@@ -52,8 +59,15 @@
   .dv-modal-field { @apply flex flex-col gap-2 text-sm text-subtle; }
   .dv-modal-check { @apply flex items-center gap-2 text-sm text-subtle; }
   .dv-modal-actions { @apply flex flex-wrap gap-2; }
+  .dv-command-palette { @apply max-w-2xl; }
+  .dv-command-list { @apply border rounded-md overflow-hidden max-h-[320px] overflow-auto; }
+  .dv-command-item { @apply w-full text-left px-3 py-2 bg-muted border-b last:border-b-0 hover:bg-panel; }
+  .dv-command-item.is-active { @apply bg-panel border-accent; }
+  .dv-command-hint { @apply block text-xs text-subtle; }
 
   .dv-sidebar-search-label { @apply text-xs text-subtle mb-1 block; }
+  .dv-sidebar-filter-row { @apply flex items-center justify-between gap-2; }
+  .dv-sidebar-filter-input-row { @apply flex items-center gap-2 mb-2; }
   .dv-sidebar-subsection { @apply space-y-1 pt-2; }
   .dv-nav-row { @apply flex items-center gap-1; }
   .dv-pin-btn {
@@ -70,25 +84,137 @@
   .dv-sql-tab-close { @apply h-full px-2 text-subtle hover:text-danger; }
   .dv-sql-tab-add { @apply px-3 py-2 rounded-md border bg-muted text-sm hover:border-accent; }
   .dv-sql-tab-input { @apply w-full bg-panel border rounded-sm px-1 py-0.5 text-xs text-text; }
+  .dv-sql-split { @apply grid gap-0 min-h-[70vh]; }
+  .dv-sql-splitter { @apply bg-border hover:bg-accent cursor-row-resize rounded-sm; }
+  .dv-query-history { @apply border rounded-md p-2 space-y-2; }
+  .dv-query-history-list { @apply max-h-44 overflow-auto space-y-2; }
+  .dv-query-history-item { @apply border rounded-md p-2 bg-muted; }
+  .dv-query-history-query { @apply w-full text-left font-mono text-xs break-words hover:text-accent; }
 
   .dv-table-shell { @apply border rounded-md overflow-hidden; }
   .dv-table-status {
     @apply sticky top-0 z-20 bg-panel border-b text-xs text-subtle px-3 py-2 flex items-center justify-between;
   }
   .dv-table-scroll { @apply overflow-auto max-h-[65vh]; }
+  .dv-table-content { @apply grid grid-cols-1 lg:grid-cols-[1fr_340px]; }
   .dv-table { @apply w-full text-sm border-collapse table-fixed; }
-  .dv-table th { @apply px-3 py-2 border-b font-medium bg-muted text-subtle sticky top-[33px] z-10; }
+  .dv-table th { @apply px-3 py-2 border-b font-medium bg-muted text-subtle sticky top-0 z-10; }
   .dv-table td { @apply px-3 py-2 border-b border-border font-mono text-xs align-top; }
   .dv-table tr:hover td { @apply bg-muted; }
+  .dv-table-row-selected td { @apply bg-muted; }
   .dv-table-index { @apply text-subtle text-right w-12 min-w-12 bg-panel font-mono text-xs; }
   .dv-table-cell { @apply cursor-copy whitespace-pre-wrap break-words; }
   .dv-cell-null { @apply text-subtle italic; }
+  .dv-row-drawer { @apply border-l bg-panel p-3 overflow-auto max-h-[65vh]; }
+  .dv-row-drawer-grid { @apply m-0 space-y-2; }
+  .dv-row-drawer-item { @apply border rounded-md p-2 bg-muted; }
+  .dv-row-drawer-item dt { @apply text-xs text-subtle mb-1; }
+  .dv-row-drawer-item dd { @apply m-0 font-mono text-xs whitespace-pre-wrap break-words; }
 
   .dv-th-content { @apply relative pr-3 truncate; }
   .dv-col-resizer {
     @apply absolute right-0 top-0 h-full w-2 cursor-col-resize;
     transform: translateX(50%);
   }
+
+  /* Schema sidebar sections */
+  .dv-schema-toggle {
+    @apply w-full text-left px-2 py-1.5 text-xs font-semibold text-subtle uppercase tracking-wide
+           flex items-center justify-between rounded-md hover:bg-muted;
+  }
+  .dv-schema-toggle.is-active { @apply text-text bg-muted; }
+  .dv-schema-toggle-count { @apply font-normal text-subtle; }
+  .dv-schema-chevron { @apply text-subtle transition-transform duration-150; }
+  .dv-schema-chevron.is-open { transform: rotate(90deg); }
+  .dv-schema-items { @apply space-y-1 pl-2 pt-1 pb-2; }
+  .dv-schema-item {
+    @apply w-full text-left px-2 py-1.5 text-sm rounded-md text-subtle hover:text-text hover:bg-muted truncate;
+  }
+  .dv-schema-item.is-active { @apply text-text bg-muted ring-1 ring-accent; }
+  .dv-schema-icon { @apply text-subtle mr-1.5 inline-block w-4 text-center text-xs; }
+
+  /* Sort indicators */
+  .dv-th-sortable { cursor: pointer; user-select: none; }
+  .dv-th-sortable:hover { @apply text-text; }
+  .dv-sort-indicator { @apply ml-1 text-accent text-xs; }
+
+  /* Filter bar */
+  .dv-filter-bar {
+    @apply flex gap-2 items-center bg-panel border-b px-3 py-1.5 text-xs sticky top-0 z-30;
+  }
+  .dv-filter-input {
+    @apply bg-muted border rounded px-2 py-1 text-xs text-text font-mono;
+    min-width: 80px;
+    max-width: 200px;
+  }
+  .dv-filter-input::placeholder { @apply text-subtle; }
+  .dv-filter-tag {
+    @apply inline-flex items-center gap-1 bg-muted border rounded px-2 py-0.5 text-xs;
+  }
+  .dv-filter-tag-remove { @apply text-subtle hover:text-danger cursor-pointer; }
+
+  /* Pagination */
+  .dv-pagination {
+    @apply flex items-center justify-between bg-panel border-t px-3 py-2 text-xs text-subtle;
+  }
+  .dv-pagination-controls { @apply flex items-center gap-2; }
+  .dv-page-btn {
+    @apply px-2 py-1 rounded border bg-muted text-text text-xs hover:border-accent disabled:opacity-40 disabled:cursor-default;
+  }
+  .dv-page-info { @apply text-xs text-subtle; }
+  .dv-page-size-select { @apply bg-muted border rounded px-1.5 py-1 text-xs text-text; }
+
+  /* Inline editing */
+  .dv-cell-edit-input {
+    @apply bg-bg border border-accent rounded px-1.5 py-0.5 text-xs font-mono text-text w-full;
+    outline: none;
+  }
+  .dv-cell-edited { background-color: rgba(79, 140, 255, 0.1); }
+  .dv-cell-editable { @apply cursor-text; }
+  .dv-edit-toolbar {
+    @apply flex items-center gap-2 bg-panel border-b px-3 py-2;
+  }
+  .dv-add-row-btn {
+    @apply text-xs text-accent hover:text-text cursor-pointer;
+  }
+
+  /* FK links */
+  .dv-fk-link {
+    @apply text-accent hover:underline cursor-pointer;
+  }
+
+  /* Favorites */
+  .dv-favorites { @apply border rounded-md p-2 space-y-2; }
+  .dv-favorites-list { @apply max-h-44 overflow-auto space-y-2; }
+  .dv-favorite-item { @apply border rounded-md p-2 bg-muted flex items-start justify-between gap-2; }
+  .dv-favorite-main { @apply flex-1 min-w-0; }
+  .dv-favorite-name { @apply text-sm font-medium text-text truncate; }
+  .dv-favorite-query { @apply w-full text-left font-mono text-xs break-words hover:text-accent mt-0.5; }
+
+  /* EXPLAIN panel */
+  .dv-explain-panel { @apply border rounded-md p-3 bg-muted overflow-auto max-h-[50vh]; }
+  .dv-explain-pre { @apply font-mono text-xs text-text whitespace-pre-wrap m-0; }
+  .dv-explain-node {
+    @apply border-l-2 border-accent pl-3 py-1 mb-1;
+  }
+  .dv-explain-node-header { @apply text-xs font-medium text-text; }
+  .dv-explain-node-detail { @apply text-xs text-subtle; }
+
+  /* Toolbar separator */
+  .dv-toolbar-sep { @apply w-px h-6 bg-border mx-1; }
+
+  /* Connection detail */
+  .dv-conn-detail { @apply text-xs text-subtle mt-1 space-y-0.5; }
+  .dv-conn-detail-row { @apply flex items-center gap-1; }
+  .dv-conn-label { @apply text-subtle; }
+  .dv-conn-value { @apply text-text font-mono; }
+
+  /* Badge */
+  .dv-badge {
+    @apply inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium;
+  }
+  .dv-badge-success { @apply bg-green-500/20 text-green-400; }
+  .dv-badge-warn { @apply bg-yellow-500/20 text-yellow-400; }
 
   .dv-shell[data-density='compact'] .dv-sidebar { @apply p-3; }
   .dv-shell[data-density='compact'] .dv-main { @apply p-3 md:p-4 space-y-3; }
@@ -104,5 +230,7 @@
   @media (max-width: 1024px) {
     .dv-shell { @apply grid-cols-1; }
     .dv-sidebar { @apply border-r-0 border-b; }
+    .dv-table-content { @apply grid-cols-1; }
+    .dv-row-drawer { @apply border-l-0 border-t max-h-[40vh]; }
   }
 }

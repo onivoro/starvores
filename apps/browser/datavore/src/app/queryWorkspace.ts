@@ -9,12 +9,36 @@ export type SqlWorkspaceState = {
   activeTabId: string;
 };
 
+export type SqlQueryHistoryItem = {
+  id: string;
+  query: string;
+  rowCount: number;
+  elapsedMs: number;
+  executedAt: string;
+};
+
+export type FavoriteQuery = {
+  id: string;
+  name: string;
+  query: string;
+  createdAt: string;
+};
+
 export const QUERY_TABS_STORAGE_PREFIX = 'datavore-query-tabs';
 export const PINNED_TABLES_STORAGE_PREFIX = 'datavore-pinned-tables';
+export const QUERY_HISTORY_STORAGE_PREFIX = 'datavore-query-history';
+export const SQL_SPLITTER_STORAGE_PREFIX = 'datavore-sql-splitter';
+export const FAVORITES_STORAGE_PREFIX = 'datavore-favorites';
+export const DEFAULT_SQL_SPLITTER_RATIO = 0.5;
+export const MIN_SQL_SPLITTER_RATIO = 0.25;
+export const MAX_SQL_SPLITTER_RATIO = 0.75;
+export const MAX_QUERY_HISTORY_ITEMS = 30;
 
 const NEW_TAB_NAME_PREFIX = 'Query';
 
 const makeId = (): string => `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const makeHistoryId = (): string => `history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const makeFavId = (): string => `fav-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 export const createTab = (query: string, index: number, name?: string): SqlQueryTab => ({
   id: makeId(),
@@ -32,6 +56,21 @@ export const getPinnedTablesStorageKey = (queryStorageKey: string | null): strin
   return `${PINNED_TABLES_STORAGE_PREFIX}:${queryStorageKey}`;
 };
 
+export const getQueryHistoryStorageKey = (queryStorageKey: string | null): string | null => {
+  if (!queryStorageKey) return null;
+  return `${QUERY_HISTORY_STORAGE_PREFIX}:${queryStorageKey}`;
+};
+
+export const getSqlSplitterStorageKey = (queryStorageKey: string | null): string | null => {
+  if (!queryStorageKey) return null;
+  return `${SQL_SPLITTER_STORAGE_PREFIX}:${queryStorageKey}`;
+};
+
+export const getFavoritesStorageKey = (queryStorageKey: string | null): string | null => {
+  if (!queryStorageKey) return null;
+  return `${FAVORITES_STORAGE_PREFIX}:${queryStorageKey}`;
+};
+
 const parseJson = <T>(value: string | null): T | null => {
   if (!value) return null;
   try {
@@ -45,6 +84,31 @@ const isValidTab = (value: unknown): value is SqlQueryTab => {
   if (!value || typeof value !== 'object') return false;
   const tab = value as Partial<SqlQueryTab>;
   return typeof tab.id === 'string' && typeof tab.name === 'string' && typeof tab.query === 'string';
+};
+
+const isValidHistoryItem = (value: unknown): value is SqlQueryHistoryItem => {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<SqlQueryHistoryItem>;
+  return (
+    typeof item.id === 'string' &&
+    typeof item.query === 'string' &&
+    typeof item.rowCount === 'number' &&
+    Number.isFinite(item.rowCount) &&
+    typeof item.elapsedMs === 'number' &&
+    Number.isFinite(item.elapsedMs) &&
+    typeof item.executedAt === 'string'
+  );
+};
+
+const isValidFavorite = (value: unknown): value is FavoriteQuery => {
+  if (!value || typeof value !== 'object') return false;
+  const fav = value as Partial<FavoriteQuery>;
+  return (
+    typeof fav.id === 'string' &&
+    typeof fav.name === 'string' &&
+    typeof fav.query === 'string' &&
+    typeof fav.createdAt === 'string'
+  );
 };
 
 export const loadWorkspaceState = (
@@ -131,3 +195,172 @@ export const loadPinnedTables = (rawValue: string | null): string[] => {
 };
 
 export const serializePinnedTables = (tables: string[]): string => JSON.stringify(Array.from(new Set(tables)));
+
+export const loadQueryHistory = (rawValue: string | null): SqlQueryHistoryItem[] => {
+  const parsed = parseJson<unknown>(rawValue);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter(isValidHistoryItem).slice(0, MAX_QUERY_HISTORY_ITEMS);
+};
+
+export const serializeQueryHistory = (history: SqlQueryHistoryItem[]): string => JSON.stringify(history);
+
+export const addSuccessfulQueryToHistory = (
+  history: SqlQueryHistoryItem[],
+  query: string,
+  rowCount: number,
+  elapsedMs: number,
+): SqlQueryHistoryItem[] => {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) return history;
+
+  const nextItem: SqlQueryHistoryItem = {
+    id: makeHistoryId(),
+    query: trimmedQuery,
+    rowCount: Math.max(0, Math.floor(rowCount)),
+    elapsedMs: Math.max(0, Math.floor(elapsedMs)),
+    executedAt: new Date().toISOString(),
+  };
+
+  const deduped = history.filter((item) => item.query !== trimmedQuery);
+  return [nextItem, ...deduped].slice(0, MAX_QUERY_HISTORY_ITEMS);
+};
+
+export const clampSqlSplitterRatio = (value: number): number => {
+  if (!Number.isFinite(value)) return DEFAULT_SQL_SPLITTER_RATIO;
+  return Math.min(MAX_SQL_SPLITTER_RATIO, Math.max(MIN_SQL_SPLITTER_RATIO, value));
+};
+
+export const loadSqlSplitterRatio = (rawValue: string | null): number => {
+  if (typeof rawValue !== 'string' || !rawValue.trim()) return DEFAULT_SQL_SPLITTER_RATIO;
+  return clampSqlSplitterRatio(Number(rawValue));
+};
+
+export const serializeSqlSplitterRatio = (ratio: number): string => String(clampSqlSplitterRatio(ratio));
+
+export const loadFavorites = (rawValue: string | null): FavoriteQuery[] => {
+  const parsed = parseJson<unknown>(rawValue);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter(isValidFavorite);
+};
+
+export const serializeFavorites = (favorites: FavoriteQuery[]): string => JSON.stringify(favorites);
+
+export const addFavorite = (favorites: FavoriteQuery[], name: string, query: string): FavoriteQuery[] => {
+  const newFav: FavoriteQuery = {
+    id: makeFavId(),
+    name: name.trim() || 'Untitled',
+    query: query.trim(),
+    createdAt: new Date().toISOString(),
+  };
+  return [newFav, ...favorites];
+};
+
+export const removeFavorite = (favorites: FavoriteQuery[], id: string): FavoriteQuery[] => {
+  return favorites.filter((f) => f.id !== id);
+};
+
+const SQL_KEYWORDS = new Set([
+  'select',
+  'from',
+  'where',
+  'join',
+  'left',
+  'right',
+  'inner',
+  'outer',
+  'on',
+  'group',
+  'by',
+  'order',
+  'having',
+  'limit',
+  'offset',
+  'insert',
+  'into',
+  'values',
+  'update',
+  'set',
+  'delete',
+  'create',
+  'table',
+  'alter',
+  'drop',
+  'union',
+  'all',
+  'distinct',
+  'and',
+  'or',
+  'case',
+  'when',
+  'then',
+  'else',
+  'end',
+  'as',
+]);
+
+const BREAK_BEFORE = new Set([
+  'select',
+  'from',
+  'where',
+  'join',
+  'left',
+  'right',
+  'inner',
+  'outer',
+  'group',
+  'order',
+  'having',
+  'limit',
+  'offset',
+  'insert',
+  'update',
+  'delete',
+  'values',
+  'set',
+  'union',
+]);
+
+export const basicFormatSql = (query: string): string => {
+  const normalized = query
+    .replace(/\r\n?/g, '\n')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*/g, ', ')
+    .trim();
+
+  if (!normalized) return '';
+
+  const words = normalized.split(' ');
+  const lines: string[] = [];
+
+  words.forEach((word, index) => {
+    const bareWord = word.replace(/[^a-z]/gi, '').toLowerCase();
+    const normalizedWord = SQL_KEYWORDS.has(bareWord) ? word.toUpperCase() : word;
+    if (index === 0) {
+      lines.push(normalizedWord);
+      return;
+    }
+    if (BREAK_BEFORE.has(bareWord)) {
+      lines.push(normalizedWord);
+      return;
+    }
+    lines[lines.length - 1] = `${lines[lines.length - 1]} ${normalizedWord}`;
+  });
+
+  return lines.join('\n').replace(/\n+/g, '\n').trim();
+};
+
+export type PgFormatterFn = (query: string) => string | Promise<string>;
+
+export const formatSqlWithFallback = async (query: string, pgFormatter?: PgFormatterFn | null): Promise<string> => {
+  const trimmed = query.trim();
+  if (!trimmed) return '';
+
+  if (pgFormatter) {
+    const formatted = await pgFormatter(query);
+    if (typeof formatted === 'string' && formatted.trim()) {
+      return formatted;
+    }
+  }
+
+  return basicFormatSql(query);
+};
