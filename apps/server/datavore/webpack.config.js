@@ -1,16 +1,12 @@
 const { NxAppWebpackPlugin } = require('@nx/webpack/app-plugin');
-const CopyPlugin = require('copy-webpack-plugin');
 const { join } = require('path');
 
 module.exports = (env, argv) => {
   const isProduction = argv.mode === 'production';
-  const distRoot = join(__dirname, '../../../dist');
-  const browserDist = join(distRoot, 'apps/browser/datavore');
-  const serverDist = join(distRoot, 'apps/server/datavore');
 
   return {
     output: {
-      path: serverDist,
+      path: join(__dirname, '../../../dist/apps/server/datavore'),
     },
     plugins: [
       new NxAppWebpackPlugin({
@@ -22,16 +18,6 @@ module.exports = (env, argv) => {
         optimization: isProduction,
         outputHashing: 'none',
         generatePackageJson: true,
-      }),
-      // Copy built browser assets into server dist for self-contained distribution
-      new CopyPlugin({
-        patterns: [
-          {
-            from: browserDist,
-            to: join(serverDist, 'assets', 'ui'),
-            noErrorOnMissing: true,
-          },
-        ],
       }),
       {
         apply: (compiler) => {

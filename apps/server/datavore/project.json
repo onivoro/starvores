@@ -10,7 +10,8 @@
       "dependsOn": ["app-browser-datavore:build"],
       "options": {
         "outputPath": "dist/apps/server/datavore",
-        "webpackConfig": "apps/server/datavore/webpack.config.js"
+        "webpackConfig": "apps/server/datavore/webpack.config.js",
+        "assets": ["apps/server/datavore/src/assets"]
       },
       "configurations": {
         "development": {
@@ -57,6 +58,12 @@
       "executor": "@nx/js:release-publish",
       "options": {
         "packageRoot": "dist/apps/server/datavore"
+      }
+    },
+    "deploy-fullstack": {
+      "executor": "@onivoro/onix:deploy-fullstack",
+      "options": {
+        "ui": "app-browser-datavore"
       }
     }
   },
