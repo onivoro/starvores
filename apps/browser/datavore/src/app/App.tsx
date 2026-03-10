@@ -202,7 +202,6 @@ type ResultState = {
   error?: string;
 };
 
-type DensityMode = 'comfortable' | 'compact';
 type SidebarView = 'sql' | 'table';
 type ExportStatus = 'idle' | 'preparing' | 'streaming' | 'completed' | 'cancelled' | 'failed';
 type ExportLimitMode = 'none' | '10k' | '100k' | 'custom';
@@ -218,7 +217,6 @@ type CommandActionId =
   | 'explain-query'
   | 'format-sql'
   | 'export-csv'
-  | 'toggle-density'
   | 'toggle-filter-bar'
   | 'add-favorite';
 
@@ -239,7 +237,6 @@ type SidebarNavItem = {
 
 const DEFAULT_QUERY = 'SELECT * FROM table_name LIMIT 100;';
 const QUERY_STORAGE_PREFIX = 'datavore-query';
-const DENSITY_STORAGE_KEY = 'datavore-density-mode';
 const DEFAULT_PAGE_SIZE = 100;
 const PAGE_SIZES = [25, 50, 100, 250, 500, 1000];
 
@@ -371,12 +368,6 @@ export function App() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandPaletteFilter, setCommandPaletteFilter] = useState('');
   const [commandPaletteIndex, setCommandPaletteIndex] = useState(0);
-
-  /* ── UI ── */
-  const [density, setDensity] = useState<DensityMode>(() => {
-    const saved = localStorage.getItem(DENSITY_STORAGE_KEY);
-    return saved === 'compact' ? 'compact' : 'comfortable';
-  });
 
   /* ── Refs ── */
   const editorRef = useRef<any>(null);
@@ -571,8 +562,6 @@ export function App() {
   }, [favoritesStorageKey]);
 
   /* ── Persistence effects ── */
-
-  useEffect(() => { localStorage.setItem(DENSITY_STORAGE_KEY, density); }, [density]);
 
   useEffect(() => {
     if (!canPersistWorkspace || !tabsStorageKey || workspaceHydratedForKey !== tabsStorageKey) return;
@@ -1204,7 +1193,6 @@ export function App() {
       if (actionId === 'explain-query') { void runExplain(); return; }
       if (actionId === 'format-sql') { void formatActiveSql(); return; }
       if (actionId === 'export-csv') { exportCurrentCsv(); return; }
-      if (actionId === 'toggle-density') { setDensity((c) => (c === 'comfortable' ? 'compact' : 'comfortable')); return; }
       if (actionId === 'toggle-filter-bar') { setFilterBarOpen((c) => !c); return; }
       if (actionId === 'add-favorite') { setSaveFavoriteOpen(true); return; }
     },
@@ -1220,7 +1208,6 @@ export function App() {
       { id: 'explain-query' as const, label: 'Explain query', hint: 'Show EXPLAIN ANALYZE plan' },
       { id: 'format-sql' as const, label: 'Format SQL', hint: 'Auto-format SQL in editor' },
       { id: 'export-csv' as const, label: 'Export CSV', hint: 'Download current results as CSV' },
-      { id: 'toggle-density' as const, label: 'Toggle density', hint: 'Switch compact/comfortable layout' },
       { id: 'toggle-filter-bar' as const, label: 'Toggle filter bar', hint: 'Show/hide column filters in table view' },
       { id: 'add-favorite' as const, label: 'Save as favorite', hint: 'Save current query as a favorite' },
     ],
@@ -1257,7 +1244,6 @@ export function App() {
       if (key === 'f' && event.shiftKey) { event.preventDefault(); void formatActiveSql(); return; }
       if (key === '1') { event.preventDefault(); setActiveTab('data'); return; }
       if (key === '2') { event.preventDefault(); setActiveTab('structure'); return; }
-      if (key === ',') { event.preventDefault(); setDensity((c) => (c === 'comfortable' ? 'compact' : 'comfortable')); return; }
       if (key === 's') { event.preventDefault(); setSaveFavoriteOpen(true); return; }
       if (key === 'b') { event.preventDefault(); setFilterBarOpen((c) => !c); return; }
     };
@@ -1350,7 +1336,7 @@ export function App() {
   /* ── Render ── */
 
   return (
-    <div className="dv-shell" data-density={density}>
+    <div className="dv-shell" data-density="compact">
       {/* ── Sidebar ── */}
       <aside className="dv-sidebar">
         <div className="dv-sidebar-head">
@@ -1713,17 +1699,6 @@ export function App() {
                   </p>
                 </div>
                 <div className="dv-toolbar-actions">
-                  <label className="dv-density-label" htmlFor="density-mode">Density</label>
-                  <select
-                    id="density-mode"
-                    className="dv-select"
-                    value={density}
-                    onChange={(e) => setDensity(e.target.value as DensityMode)}
-                  >
-                    <option value="comfortable">Comfortable</option>
-                    <option value="compact">Compact</option>
-                  </select>
-                  <span className="dv-toolbar-sep" />
                   <button className="dv-btn-ghost" onClick={() => void formatActiveSql()}>Format</button>
                   <button className="dv-btn-ghost" onClick={() => setQueryHistoryOpen((c) => !c)}>
                     {queryHistoryOpen ? 'Hide History' : 'History'}
@@ -1795,7 +1770,7 @@ export function App() {
               {/* Monaco editor */}
               <div className="dv-editor-shell">
                 <Editor
-                  height={density === 'compact' ? '180px' : '220px'}
+                  height="180px"
                   defaultLanguage="sql"
                   value={activeSqlTab?.query ?? ''}
                   onChange={(v) => updateActiveTabQuery(v ?? '')}
@@ -1913,7 +1888,6 @@ export function App() {
                 executing={executing}
                 resultError={resultError}
                 result={result}
-                density={density}
                 emptyMessage="Run a query to view results."
               />
             </section>
@@ -1963,8 +1937,7 @@ export function App() {
                   executing={executing}
                   resultError={resultError}
                   result={result}
-                  density={density}
-                />
+                  />
               </section>
             )}
 
@@ -2028,8 +2001,7 @@ export function App() {
 
                     <DataTable
                       rows={tableData}
-                      density={density}
-                      sortable
+                            sortable
                       serverSort={tableSort}
                       onServerSort={handleTableSort}
                       editable={editMode}
@@ -2112,7 +2084,7 @@ export function App() {
                 ) : structureError ? (
                   <p className="text-danger text-sm">{structureError}</p>
                 ) : structure ? (
-                  <StructurePanel structure={structure} density={density} />
+                  <StructurePanel structure={structure} />
                 ) : (
                   <p className="dv-empty">No structure loaded.</p>
                 )}
@@ -2131,19 +2103,17 @@ function QueryResultDisplay({
   executing,
   resultError,
   result,
-  density,
   emptyMessage,
 }: {
   executing: boolean;
   resultError: string | null;
   result: ResultState | null;
-  density: DensityMode;
   emptyMessage?: string;
 }) {
   if (executing) return <p className="dv-empty">Executing query...</p>;
   if (resultError) return <p className="text-danger text-sm">{resultError}</p>;
   if (result?.error) return <p className="text-danger text-sm">{result.error}</p>;
-  if (result) return <DataTable rows={result.rows} rowCount={result.rowCount} density={density} sortable />;
+  if (result) return <DataTable rows={result.rows} rowCount={result.rowCount} sortable />;
   if (emptyMessage) return <p className="dv-empty">{emptyMessage}</p>;
   return null;
 }
@@ -2153,7 +2123,6 @@ function QueryResultDisplay({
 function DataTable({
   rows,
   rowCount,
-  density,
   sortable,
   serverSort,
   onServerSort,
@@ -2170,7 +2139,6 @@ function DataTable({
 }: {
   rows: Record<string, unknown>[];
   rowCount?: number;
-  density: DensityMode;
   sortable?: boolean;
   serverSort?: SortState;
   onServerSort?: (column: string) => void;
@@ -2255,7 +2223,7 @@ function DataTable({
   };
 
   return (
-    <div className="dv-table-shell" data-density={density}>
+    <div className="dv-table-shell" data-density="compact">
       <div className="dv-table-status">
         <span>{totalRows.toLocaleString()} rows &middot; {columns.length} columns</span>
         {editable && selectedRowIndex !== null && onDeleteRow && (
@@ -2402,7 +2370,7 @@ function DataTable({
 
 /* ── StructurePanel ──────────────────────────────────────── */
 
-function StructurePanel({ structure, density }: { structure: TableStructureInfo; density: DensityMode }) {
+function StructurePanel({ structure }: { structure: TableStructureInfo }) {
   const sections: { label: string; emptyLabel: string; rows: Record<string, unknown>[]; sortable?: boolean }[] = [
     { label: 'Columns', emptyLabel: 'No columns.', rows: structure.columns, sortable: true },
     { label: 'Primary Keys', emptyLabel: 'No primary keys.', rows: structure.primaryKeys },
@@ -2416,7 +2384,7 @@ function StructurePanel({ structure, density }: { structure: TableStructureInfo;
         <section key={label}>
           <h3 className="font-semibold mb-2">{label} ({rows.length})</h3>
           {rows.length ? (
-            <DataTable rows={rows} density={density} sortable={sortable} />
+            <DataTable rows={rows} sortable={sortable} />
           ) : (
             <p className="dv-empty">{emptyLabel}</p>
           )}
