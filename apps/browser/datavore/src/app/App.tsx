@@ -62,7 +62,14 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
-const quoteIdentifier = (name: string): string => `"${name.replace(/"/g, '""')}"`;
+type DbType = 'postgres' | 'mysql' | string;
+
+let activeDbType: DbType = 'postgres';
+
+const quoteIdentifier = (name: string): string =>
+  activeDbType === 'mysql'
+    ? `\`${name.replace(/`/g, '``')}\``
+    : `"${name.replace(/"/g, '""')}"`;
 
 const escapeSqlValue = (value: unknown): string => {
   if (value === null || value === undefined) return 'NULL';
@@ -130,10 +137,18 @@ const exportCsv = (rows: Record<string, unknown>[], filename: string) => {
   triggerDownload(blob, filename);
 };
 
+const buildFilterClause = (col: string, val: string): string => {
+  const escaped = val.replace(/'/g, "''");
+  if (activeDbType === 'mysql') {
+    return `CAST(${quoteIdentifier(col)} AS CHAR) LIKE '%${escaped}%'`;
+  }
+  return `${quoteIdentifier(col)}::text ILIKE '%${escaped}%'`;
+};
+
 const buildWhereClause = (filters: Record<string, string>): string => {
   const clauses = Object.entries(filters)
     .filter(([, v]) => v.trim())
-    .map(([col, val]) => `${quoteIdentifier(col)}::text ILIKE '%${val.replace(/'/g, "''")}%'`);
+    .map(([col, val]) => buildFilterClause(col, val));
   return clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
 };
 
@@ -240,20 +255,39 @@ const QUERY_STORAGE_PREFIX = 'datavore-query';
 const DEFAULT_PAGE_SIZE = 100;
 const PAGE_SIZES = [25, 50, 100, 250, 500, 1000];
 
-const SCHEMA_VIEWS_QUERY = `SELECT table_name as name, table_schema as schema
+const getSchemaViewsQuery = (dbType: DbType): string => {
+  if (dbType === 'mysql') {
+    return `SELECT table_name as name, table_schema as \`schema\`
+FROM information_schema.views
+WHERE table_schema = DATABASE()
+ORDER BY table_name`;
+  }
+  return `SELECT table_name as name, table_schema as schema
 FROM information_schema.views
 WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
 ORDER BY table_name`;
+};
 
-const SCHEMA_FUNCTIONS_QUERY = `SELECT routine_name as name, routine_schema as schema, routine_type as type
+const getSchemaFunctionsQuery = (dbType: DbType): string => {
+  if (dbType === 'mysql') {
+    return `SELECT routine_name as name, routine_schema as \`schema\`, routine_type as type
+FROM information_schema.routines
+WHERE routine_schema = DATABASE()
+ORDER BY routine_name`;
+  }
+  return `SELECT routine_name as name, routine_schema as schema, routine_type as type
 FROM information_schema.routines
 WHERE routine_schema NOT IN ('pg_catalog', 'information_schema')
 ORDER BY routine_name`;
+};
 
-const SCHEMA_SEQUENCES_QUERY = `SELECT sequence_name as name, sequence_schema as schema
+const getSchemaSequencesQuery = (dbType: DbType): string | null => {
+  if (dbType === 'mysql') return null; // MySQL has no sequences (before 8.0 has none in info_schema)
+  return `SELECT sequence_name as name, sequence_schema as schema
 FROM information_schema.sequences
 WHERE sequence_schema NOT IN ('pg_catalog', 'information_schema')
 ORDER BY sequence_name`;
+};
 
 declare global {
   interface Window {
@@ -438,17 +472,6 @@ export function App() {
 
   /* ── Data loading ── */
 
-  const loadConnectionInfo = useCallback(async () => {
-    try {
-      setDbInfoError(null);
-      const { data } = await api.getDatabaseInfo();
-      setDbInfo(data);
-    } catch (error) {
-      setDbInfo(null);
-      setDbInfoError(getErrorMessage(error, 'Failed to load connection info.'));
-    }
-  }, []);
-
   const loadTables = useCallback(async () => {
     setTablesLoading(true);
     try {
@@ -464,15 +487,22 @@ export function App() {
     }
   }, []);
 
-  const loadSchemaObjects = useCallback(async () => {
-    const [viewsResult, functionsResult, sequencesResult] = await Promise.allSettled([
-      api.executeQuery(SCHEMA_VIEWS_QUERY),
-      api.executeQuery(SCHEMA_FUNCTIONS_QUERY),
-      api.executeQuery(SCHEMA_SEQUENCES_QUERY),
-    ]);
-    if (viewsResult.status === 'fulfilled') setSchemaViews(viewsResult.value.data.rows as SchemaObject[]);
-    if (functionsResult.status === 'fulfilled') setSchemaFunctions(functionsResult.value.data.rows as SchemaObject[]);
-    if (sequencesResult.status === 'fulfilled') setSchemaSequences(sequencesResult.value.data.rows as SchemaObject[]);
+  const loadSchemaObjects = useCallback(async (dbType: DbType) => {
+    const viewsQuery = getSchemaViewsQuery(dbType);
+    const functionsQuery = getSchemaFunctionsQuery(dbType);
+    const sequencesQuery = getSchemaSequencesQuery(dbType);
+
+    const promises = [
+      api.executeQuery(viewsQuery),
+      api.executeQuery(functionsQuery),
+      ...(sequencesQuery ? [api.executeQuery(sequencesQuery)] : []),
+    ];
+    const results = await Promise.allSettled(promises);
+
+    if (results[0]?.status === 'fulfilled') setSchemaViews(results[0].value.data.rows as SchemaObject[]);
+    if (results[1]?.status === 'fulfilled') setSchemaFunctions(results[1].value.data.rows as SchemaObject[]);
+    if (results[2]?.status === 'fulfilled') setSchemaSequences(results[2].value.data.rows as SchemaObject[]);
+    else if (!sequencesQuery) setSchemaSequences([]);
   }, []);
 
   const loadTableBrowseData = useCallback(
@@ -502,13 +532,53 @@ export function App() {
     [],
   );
 
+  /* ── Eager schema preload ── */
+
+  const preloadAllStructures = useCallback(async (tableList: TableInfo[]) => {
+    const batch = tableList.slice(0, 50); // preload up to 50 tables
+    const results = await Promise.allSettled(
+      batch.map((t) => api.getTableStructure(t.tableName)),
+    );
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        structureCacheRef.current.set(batch[i].tableName, r.value.data);
+      }
+    });
+  }, []);
+
   /* ── Init effects ── */
 
   useEffect(() => {
-    void loadConnectionInfo();
-    void loadTables();
-    void loadSchemaObjects();
-  }, [loadConnectionInfo, loadTables, loadSchemaObjects]);
+    const init = async () => {
+      // Load connection info first to get DB type
+      try {
+        const { data } = await api.getDatabaseInfo();
+        setDbInfo(data);
+        setDbInfoError(null);
+        activeDbType = data.type ?? 'postgres';
+      } catch (error) {
+        setDbInfo(null);
+        setDbInfoError(getErrorMessage(error, 'Failed to load connection info.'));
+      }
+
+      // Load tables, then preload structures for intellisense
+      try {
+        setTablesError(null);
+        const { data } = await api.getTables();
+        setTables(data);
+        tablesRef.current = data;
+        void preloadAllStructures(data);
+      } catch (error) {
+        setTables([]);
+        setTablesError(getErrorMessage(error, 'Failed to load tables.'));
+      } finally {
+        setTablesLoading(false);
+      }
+
+      void loadSchemaObjects(activeDbType);
+    };
+    void init();
+  }, [loadSchemaObjects, preloadAllStructures]);
 
   /* ── Workspace hydration ── */
 
@@ -1083,7 +1153,10 @@ export function App() {
     setQueryId(id);
 
     try {
-      const { data } = await api.executeQuery(`EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS, FORMAT TEXT) ${queryToExplain}`, id);
+      const explainPrefix = activeDbType === 'mysql'
+        ? 'EXPLAIN ANALYZE'
+        : 'EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS, FORMAT TEXT)';
+      const { data } = await api.executeQuery(`${explainPrefix} ${queryToExplain}`, id);
       if (data.error) {
         setExplainResult(data.error);
       } else {
@@ -1286,47 +1359,204 @@ export function App() {
   /* ── Register Monaco autocomplete ── */
 
   const registerAutocomplete = useCallback((monaco: any) => {
+    const SQL_KEYWORDS = [
+      'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'FULL', 'CROSS',
+      'ON', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'INSERT INTO', 'VALUES',
+      'UPDATE', 'SET', 'DELETE', 'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'AS',
+      'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'BETWEEN', 'LIKE', 'IS NULL',
+      'IS NOT NULL', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'DISTINCT',
+      'WITH', 'UNION', 'UNION ALL', 'INTERSECT', 'EXCEPT', 'RETURNING',
+      'ASC', 'DESC', 'NULLS FIRST', 'NULLS LAST', 'TRUE', 'FALSE', 'NULL',
+    ];
+
+    const SQL_FUNCTIONS = [
+      { name: 'COUNT', sig: 'COUNT(expression)' },
+      { name: 'SUM', sig: 'SUM(expression)' },
+      { name: 'AVG', sig: 'AVG(expression)' },
+      { name: 'MIN', sig: 'MIN(expression)' },
+      { name: 'MAX', sig: 'MAX(expression)' },
+      { name: 'COALESCE', sig: 'COALESCE(val1, val2, ...)' },
+      { name: 'NULLIF', sig: 'NULLIF(val1, val2)' },
+      { name: 'CAST', sig: 'CAST(expr AS type)' },
+      { name: 'LOWER', sig: 'LOWER(string)' },
+      { name: 'UPPER', sig: 'UPPER(string)' },
+      { name: 'TRIM', sig: 'TRIM(string)' },
+      { name: 'LENGTH', sig: 'LENGTH(string)' },
+      { name: 'SUBSTRING', sig: 'SUBSTRING(string FROM start FOR length)' },
+      { name: 'REPLACE', sig: 'REPLACE(string, from, to)' },
+      { name: 'NOW', sig: 'NOW()' },
+      { name: 'CURRENT_TIMESTAMP', sig: 'CURRENT_TIMESTAMP' },
+      { name: 'EXTRACT', sig: 'EXTRACT(field FROM source)' },
+      { name: 'ROUND', sig: 'ROUND(number, decimals)' },
+      { name: 'ABS', sig: 'ABS(number)' },
+      { name: 'CONCAT', sig: 'CONCAT(str1, str2, ...)' },
+    ];
+
+    // Context keywords that signal "suggest tables next"
+    const TABLE_CONTEXT = new Set(['from', 'join', 'into', 'update', 'table']);
+    // Context keywords that signal "suggest columns next"
+    const COLUMN_CONTEXT = new Set(['select', 'where', 'on', 'by', 'set', 'and', 'or', 'having']);
+
+    /** Parse table references and aliases from the full SQL text */
+    const parseTableReferences = (text: string): Map<string, string> => {
+      const aliases = new Map<string, string>(); // alias → tableName
+      const tablePattern = /\b(?:from|join|update|into)\s+([`"[\]]?\w+[`"\]]?)(?:\s+(?:as\s+)?([`"[\]]?\w+[`"\]]?))?/gi;
+      let match;
+      while ((match = tablePattern.exec(text)) !== null) {
+        const rawTable = match[1].replace(/[`"[\]]/g, '');
+        const rawAlias = match[2]?.replace(/[`"[\]]/g, '') ?? '';
+        if (rawAlias && !TABLE_CONTEXT.has(rawAlias.toLowerCase()) && !COLUMN_CONTEXT.has(rawAlias.toLowerCase())) {
+          aliases.set(rawAlias.toLowerCase(), rawTable);
+        }
+        aliases.set(rawTable.toLowerCase(), rawTable);
+      }
+      return aliases;
+    };
+
+    /** Get the word immediately before the cursor position */
+    const getPrecedingContext = (text: string): { word: string; dotPrefix: string | null } => {
+      // Check for alias.column pattern (word followed by dot at the end)
+      const dotMatch = text.match(/(\w+)\.\s*$/);
+      if (dotMatch) {
+        return { word: '', dotPrefix: dotMatch[1] };
+      }
+      // Get the last keyword/word before cursor
+      const words = text.replace(/[^\w\s.]/g, ' ').trim().split(/\s+/);
+      return { word: words[words.length - 1]?.toLowerCase() ?? '', dotPrefix: null };
+    };
+
     monaco.languages.registerCompletionItemProvider('sql', {
-      provideCompletionItems: () => {
+      triggerCharacters: ['.', ' '],
+      provideCompletionItems: (model: any, position: any) => {
+        const textUntilPosition = model.getValueInRange({
+          startLineNumber: 1,
+          startColumn: 1,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
+        });
+        const fullText = model.getValue();
         const suggestions: any[] = [];
-        // SQL keywords
-        const keywords = [
-          'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'FULL',
-          'ON', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'INSERT INTO', 'VALUES',
-          'UPDATE', 'SET', 'DELETE', 'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'AS',
-          'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'BETWEEN', 'LIKE', 'ILIKE', 'IS NULL',
-          'IS NOT NULL', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'DISTINCT', 'COUNT',
-          'SUM', 'AVG', 'MIN', 'MAX', 'COALESCE', 'NULLIF', 'CAST', 'EXPLAIN ANALYZE',
-          'WITH', 'UNION', 'UNION ALL', 'INTERSECT', 'EXCEPT', 'RETURNING',
-        ];
-        keywords.forEach((kw) => {
+
+        const ctx = getPrecedingContext(textUntilPosition);
+        const tableRefs = parseTableReferences(fullText);
+
+        // After "alias." → suggest only that table's columns
+        if (ctx.dotPrefix) {
+          const aliasLower = ctx.dotPrefix.toLowerCase();
+          const resolvedTable = tableRefs.get(aliasLower);
+          if (resolvedTable) {
+            const struct = structureCacheRef.current.get(resolvedTable);
+            if (struct) {
+              struct.columns.forEach((col) => {
+                const nullable = col.isNullable === 'YES' ? ', nullable' : '';
+                const defaultVal = col.columnDefault ? `, default: ${col.columnDefault}` : '';
+                suggestions.push({
+                  label: col.columnName,
+                  kind: monaco.languages.CompletionItemKind.Field,
+                  insertText: col.columnName,
+                  detail: `${col.dataType}${nullable}`,
+                  documentation: `Column on ${resolvedTable} (${col.dataType}${nullable}${defaultVal})`,
+                  sortText: `0_${col.columnName}`,
+                });
+              });
+            }
+          }
+          return { suggestions };
+        }
+
+        // After FROM/JOIN/INTO/UPDATE → prioritize tables
+        if (TABLE_CONTEXT.has(ctx.word)) {
+          tablesRef.current.forEach((table) => {
+            const struct = structureCacheRef.current.get(table.tableName);
+            const colCount = struct ? `${struct.columns.length} columns` : '';
+            suggestions.push({
+              label: table.tableName,
+              kind: monaco.languages.CompletionItemKind.Class,
+              insertText: table.tableName,
+              detail: `table${colCount ? ` · ${colCount}` : ''}`,
+              sortText: `0_${table.tableName}`,
+            });
+          });
+          return { suggestions };
+        }
+
+        // After SELECT/WHERE/ON/ORDER BY/GROUP BY → prioritize columns from referenced tables
+        if (COLUMN_CONTEXT.has(ctx.word)) {
+          // Columns from referenced tables first
+          tableRefs.forEach((tableName) => {
+            const struct = structureCacheRef.current.get(tableName);
+            if (!struct) return;
+            struct.columns.forEach((col) => {
+              suggestions.push({
+                label: col.columnName,
+                kind: monaco.languages.CompletionItemKind.Field,
+                insertText: col.columnName,
+                detail: `${tableName} · ${col.dataType}`,
+                sortText: `0_${col.columnName}`,
+              });
+            });
+          });
+
+          // Also add functions for SELECT/WHERE context
+          SQL_FUNCTIONS.forEach((fn) => {
+            suggestions.push({
+              label: fn.name,
+              kind: monaco.languages.CompletionItemKind.Function,
+              insertText: fn.name + '($0)',
+              insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+              detail: fn.sig,
+              sortText: `1_${fn.name}`,
+            });
+          });
+
+          return { suggestions };
+        }
+
+        // Default: show everything
+        SQL_KEYWORDS.forEach((kw) => {
           suggestions.push({
             label: kw,
             kind: monaco.languages.CompletionItemKind.Keyword,
             insertText: kw,
             detail: 'keyword',
+            sortText: `2_${kw}`,
           });
         });
-        // Table names
+
+        SQL_FUNCTIONS.forEach((fn) => {
+          suggestions.push({
+            label: fn.name,
+            kind: monaco.languages.CompletionItemKind.Function,
+            insertText: fn.name + '($0)',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            detail: fn.sig,
+            sortText: `1_${fn.name}`,
+          });
+        });
+
         tablesRef.current.forEach((table) => {
           suggestions.push({
             label: table.tableName,
             kind: monaco.languages.CompletionItemKind.Class,
             insertText: table.tableName,
             detail: 'table',
+            sortText: `1_${table.tableName}`,
           });
         });
-        // Column names from cached structures
+
+        // All cached columns (lower priority in default context)
         structureCacheRef.current.forEach((struct, tableName) => {
           struct.columns.forEach((col) => {
             suggestions.push({
               label: col.columnName,
               kind: monaco.languages.CompletionItemKind.Field,
               insertText: col.columnName,
-              detail: `${tableName} (${col.dataType})`,
+              detail: `${tableName} · ${col.dataType}`,
+              sortText: `3_${col.columnName}`,
             });
           });
         });
+
         return { suggestions };
       },
     });
