@@ -1237,7 +1237,6 @@ export function App() {
       const key = event.key.toLowerCase();
       if (key === 'e') { event.preventDefault(); focusEditor(); return; }
       if (key === 'l') { event.preventDefault(); focusSelectedSidebarItem(); return; }
-      if (key === 't' && !event.shiftKey) { event.preventDefault(); createNewSqlTab(); return; }
       if (key === 'w') { event.preventDefault(); closeSqlTab(); return; }
       if (key === 'enter' && !event.shiftKey) { event.preventDefault(); void executeQuery(); return; }
       if (key === 'enter' && event.shiftKey) { event.preventDefault(); void runExplain(); return; }
@@ -1695,7 +1694,7 @@ export function App() {
                 <div className="dv-section-head">
                   <h2 className="dv-section-title">SQL Query Workspace</h2>
                   <p className="dv-section-meta">
-                    Cmd+Enter run &middot; Shift+Cmd+Enter explain &middot; Cmd+T new tab &middot; Cmd+S save favorite
+                    Cmd+Enter run &middot; Shift+Cmd+Enter explain &middot; Cmd+S save favorite
                   </p>
                 </div>
                 <div className="dv-toolbar-actions">
@@ -1789,7 +1788,6 @@ export function App() {
                     if (editor.getValue() !== (activeSqlTab?.query ?? '')) editor.setValue(activeSqlTab?.query ?? '');
                     editor.focus();
                     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => { void executeQuery(); });
-                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyT, () => { createNewSqlTab(); });
                     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => { closeSqlTab(); });
                     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => { void runExplain(); });
                     registerAutocomplete(monaco);
