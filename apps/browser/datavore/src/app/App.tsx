@@ -103,15 +103,12 @@ const parseContentDispositionFilename = (contentDisposition: string | null): str
   return match?.[1]?.trim() || null;
 };
 
-const getDefaultExportFilename = (): string => {
-  const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
-  return `query-${timestamp}.jsonl`;
-};
+const getTimestamp = (): string =>
+  new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
 
-const getDefaultCsvFilename = (): string => {
-  const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
-  return `export-${timestamp}.csv`;
-};
+const getDefaultExportFilename = (): string => `query-${getTimestamp()}.jsonl`;
+
+const getDefaultCsvFilename = (): string => `export-${getTimestamp()}.csv`;
 
 const exportCsv = (rows: Record<string, unknown>[], filename: string) => {
   if (!rows.length) return;
@@ -133,6 +130,13 @@ const exportCsv = (rows: Record<string, unknown>[], filename: string) => {
   triggerDownload(blob, filename);
 };
 
+const buildWhereClause = (filters: Record<string, string>): string => {
+  const clauses = Object.entries(filters)
+    .filter(([, v]) => v.trim())
+    .map(([col, val]) => `${quoteIdentifier(col)}::text ILIKE '%${val.replace(/'/g, "''")}%'`);
+  return clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
+};
+
 const buildSelectQuery = (
   table: string,
   sort: SortState,
@@ -140,23 +144,24 @@ const buildSelectQuery = (
   limit: number,
   offset: number,
 ): string => {
-  let sql = `SELECT * FROM ${quoteIdentifier(table)}`;
-  const filterClauses = Object.entries(filters)
-    .filter(([, v]) => v.trim())
-    .map(([col, val]) => `${quoteIdentifier(col)}::text ILIKE '%${val.replace(/'/g, "''")}%'`);
-  if (filterClauses.length) sql += ` WHERE ${filterClauses.join(' AND ')}`;
+  let sql = `SELECT * FROM ${quoteIdentifier(table)}${buildWhereClause(filters)}`;
   if (sort) sql += ` ORDER BY ${quoteIdentifier(sort.column)} ${sort.direction.toUpperCase()}`;
   sql += ` LIMIT ${limit} OFFSET ${offset}`;
   return sql;
 };
 
-const buildCountQuery = (table: string, filters: Record<string, string>): string => {
-  let sql = `SELECT COUNT(*) as total FROM ${quoteIdentifier(table)}`;
-  const filterClauses = Object.entries(filters)
-    .filter(([, v]) => v.trim())
-    .map(([col, val]) => `${quoteIdentifier(col)}::text ILIKE '%${val.replace(/'/g, "''")}%'`);
-  if (filterClauses.length) sql += ` WHERE ${filterClauses.join(' AND ')}`;
-  return sql;
+const buildCountQuery = (table: string, filters: Record<string, string>): string =>
+  `SELECT COUNT(*) as total FROM ${quoteIdentifier(table)}${buildWhereClause(filters)}`;
+
+const buildRowWhereClause = (pkColumns: string[], row: Record<string, unknown>): string => {
+  const keyColumns = pkColumns.length ? pkColumns : Object.keys(row);
+  const clauses = keyColumns.map((col) => {
+    const val = row[col];
+    return val === null || val === undefined
+      ? `${quoteIdentifier(col)} IS NULL`
+      : `${quoteIdentifier(col)} = ${escapeSqlValue(val)}`;
+  });
+  return clauses.join(' AND ');
 };
 
 const buildUpdateQuery = (
@@ -166,41 +171,16 @@ const buildUpdateQuery = (
   pkColumns: string[],
   row: Record<string, unknown>,
 ): string => {
-  const setClauses = `${quoteIdentifier(column)} = ${newValue === '' ? 'NULL' : escapeSqlValue(newValue)}`;
-  const whereClauses = pkColumns.map(
-    (pk) => `${quoteIdentifier(pk)} = ${escapeSqlValue(row[pk])}`,
-  );
-  if (!whereClauses.length) {
-    const allCols = Object.keys(row);
-    allCols.forEach((col) => {
-      const val = row[col];
-      whereClauses.push(
-        val === null || val === undefined
-          ? `${quoteIdentifier(col)} IS NULL`
-          : `${quoteIdentifier(col)} = ${escapeSqlValue(val)}`,
-      );
-    });
-  }
-  return `UPDATE ${quoteIdentifier(table)} SET ${setClauses} WHERE ${whereClauses.join(' AND ')}`;
+  const setClause = `${quoteIdentifier(column)} = ${newValue === '' ? 'NULL' : escapeSqlValue(newValue)}`;
+  return `UPDATE ${quoteIdentifier(table)} SET ${setClause} WHERE ${buildRowWhereClause(pkColumns, row)}`;
 };
 
 const buildDeleteQuery = (
   table: string,
   pkColumns: string[],
   row: Record<string, unknown>,
-): string => {
-  const whereClauses: string[] = [];
-  const keyColumns = pkColumns.length ? pkColumns : Object.keys(row);
-  keyColumns.forEach((col) => {
-    const val = row[col];
-    whereClauses.push(
-      val === null || val === undefined
-        ? `${quoteIdentifier(col)} IS NULL`
-        : `${quoteIdentifier(col)} = ${escapeSqlValue(val)}`,
-    );
-  });
-  return `DELETE FROM ${quoteIdentifier(table)} WHERE ${whereClauses.join(' AND ')}`;
-};
+): string =>
+  `DELETE FROM ${quoteIdentifier(table)} WHERE ${buildRowWhereClause(pkColumns, row)}`;
 
 const buildInsertQuery = (
   table: string,
@@ -1142,18 +1122,27 @@ export function App() {
     requestAnimationFrame(() => editorRef.current?.focus());
   }, [activeSqlTab, getEditorContents, updateActiveTabQuery]);
 
+  /* ── Load query into editor ── */
+
+  const loadQueryIntoEditor = useCallback(
+    (query: string) => {
+      setActiveView('sql');
+      updateActiveTabQuery(query);
+      editorRef.current?.setValue?.(query);
+      editorRef.current?.focus?.();
+    },
+    [updateActiveTabQuery],
+  );
+
   /* ── History ── */
 
   const rerunFromHistory = useCallback(
     async (item: SqlQueryHistoryItem) => {
       if (!activeSqlTab) return;
-      setActiveView('sql');
-      updateActiveTabQuery(item.query);
-      if (editorRef.current?.getValue?.() !== item.query) editorRef.current?.setValue?.(item.query);
-      editorRef.current?.focus?.();
+      loadQueryIntoEditor(item.query);
       await executeQuery(item.query);
     },
-    [activeSqlTab, executeQuery, updateActiveTabQuery],
+    [activeSqlTab, executeQuery, loadQueryIntoEditor],
   );
 
   /* ── Favorites ── */
@@ -1173,12 +1162,9 @@ export function App() {
   const loadFavoriteIntoEditor = useCallback(
     (fav: FavoriteQuery) => {
       if (!activeSqlTab) return;
-      setActiveView('sql');
-      updateActiveTabQuery(fav.query);
-      if (editorRef.current?.getValue?.() !== fav.query) editorRef.current?.setValue?.(fav.query);
-      editorRef.current?.focus?.();
+      loadQueryIntoEditor(fav.query);
     },
-    [activeSqlTab, updateActiveTabQuery],
+    [activeSqlTab, loadQueryIntoEditor],
   );
 
   /* ── CSV export ── */
@@ -1368,7 +1354,7 @@ export function App() {
       {/* ── Sidebar ── */}
       <aside className="dv-sidebar">
         <div className="dv-sidebar-head">
-          <h1 className="text-lg font-semibold">DataVore</h1>
+          <h1 className="text-base font-semibold tracking-tight">DataVore</h1>
           {dbInfo ? (
             <div className="dv-conn-detail">
               <div className="dv-conn-detail-row">
@@ -1545,11 +1531,8 @@ export function App() {
                     key={`${fn.schema}.${fn.name}-${i}`}
                     className="dv-schema-item"
                     onClick={() => {
-                      setActiveView('sql');
-                      const query = `SELECT * FROM ${fn.schema !== 'public' ? `${quoteIdentifier(fn.schema)}.` : ''}${quoteIdentifier(fn.name)}()`;
-                      updateActiveTabQuery(query);
-                      editorRef.current?.setValue?.(query);
-                      editorRef.current?.focus?.();
+                      const prefix = fn.schema !== 'public' ? `${quoteIdentifier(fn.schema)}.` : '';
+                      loadQueryIntoEditor(`SELECT * FROM ${prefix}${quoteIdentifier(fn.name)}()`);
                     }}
                   >
                     <span className="dv-schema-icon">f</span>
@@ -1578,11 +1561,8 @@ export function App() {
                     key={`${seq.schema}.${seq.name}`}
                     className="dv-schema-item"
                     onClick={() => {
-                      setActiveView('sql');
-                      const query = `SELECT * FROM ${seq.schema !== 'public' ? `${quoteIdentifier(seq.schema)}.` : ''}${quoteIdentifier(seq.name)}`;
-                      updateActiveTabQuery(query);
-                      editorRef.current?.setValue?.(query);
-                      editorRef.current?.focus?.();
+                      const prefix = seq.schema !== 'public' ? `${quoteIdentifier(seq.schema)}.` : '';
+                      loadQueryIntoEditor(`SELECT * FROM ${prefix}${quoteIdentifier(seq.name)}`);
                     }}
                   >
                     <span className="dv-schema-icon">S</span>
@@ -1929,17 +1909,13 @@ export function App() {
                 </div>
               )}
               {/* Query results */}
-              {executing ? (
-                <p className="dv-empty">Executing query...</p>
-              ) : resultError ? (
-                <p className="text-danger text-sm">{resultError}</p>
-              ) : result?.error ? (
-                <p className="text-danger text-sm">{result.error}</p>
-              ) : result ? (
-                <DataTable rows={result.rows} rowCount={result.rowCount} density={density} sortable />
-              ) : (
-                <p className="dv-empty">Run a query to view results.</p>
-              )}
+              <QueryResultDisplay
+                executing={executing}
+                resultError={resultError}
+                result={result}
+                density={density}
+                emptyMessage="Run a query to view results."
+              />
             </section>
           </div>
         ) : (
@@ -1967,11 +1943,9 @@ export function App() {
                   {editMode ? 'Done Editing' : 'Edit'}
                 </button>
                 {editMode && (
-                  <>
-                    <button className="dv-btn-ghost" onClick={() => { setAddingRow(true); setNewRowValues({}); }}>
-                      + Add Row
-                    </button>
-                  </>
+                  <button className="dv-btn-ghost" onClick={() => { setAddingRow(true); setNewRowValues({}); }}>
+                    + Add Row
+                  </button>
                 )}
               </div>
             </div>
@@ -1985,15 +1959,12 @@ export function App() {
                   </div>
                   <button className="dv-btn-ghost" onClick={selectSqlView}>Open SQL Query</button>
                 </div>
-                {executing ? (
-                  <p className="dv-empty">Executing query...</p>
-                ) : resultError ? (
-                  <p className="text-danger text-sm">{resultError}</p>
-                ) : result?.error ? (
-                  <p className="text-danger text-sm">{result.error}</p>
-                ) : result ? (
-                  <DataTable rows={result.rows} rowCount={result.rowCount} density={density} sortable />
-                ) : null}
+                <QueryResultDisplay
+                  executing={executing}
+                  resultError={resultError}
+                  result={result}
+                  density={density}
+                />
               </section>
             )}
 
@@ -2152,6 +2123,29 @@ export function App() {
       </main>
     </div>
   );
+}
+
+/* ── QueryResultDisplay ──────────────────────────────────── */
+
+function QueryResultDisplay({
+  executing,
+  resultError,
+  result,
+  density,
+  emptyMessage,
+}: {
+  executing: boolean;
+  resultError: string | null;
+  result: ResultState | null;
+  density: DensityMode;
+  emptyMessage?: string;
+}) {
+  if (executing) return <p className="dv-empty">Executing query...</p>;
+  if (resultError) return <p className="text-danger text-sm">{resultError}</p>;
+  if (result?.error) return <p className="text-danger text-sm">{result.error}</p>;
+  if (result) return <DataTable rows={result.rows} rowCount={result.rowCount} density={density} sortable />;
+  if (emptyMessage) return <p className="dv-empty">{emptyMessage}</p>;
+  return null;
 }
 
 /* ── DataTable ───────────────────────────────────────────── */
@@ -2409,36 +2403,25 @@ function DataTable({
 /* ── StructurePanel ──────────────────────────────────────── */
 
 function StructurePanel({ structure, density }: { structure: TableStructureInfo; density: DensityMode }) {
+  const sections: { label: string; emptyLabel: string; rows: Record<string, unknown>[]; sortable?: boolean }[] = [
+    { label: 'Columns', emptyLabel: 'No columns.', rows: structure.columns, sortable: true },
+    { label: 'Primary Keys', emptyLabel: 'No primary keys.', rows: structure.primaryKeys },
+    { label: 'Foreign Keys', emptyLabel: 'No foreign keys.', rows: structure.foreignKeys, sortable: true },
+    { label: 'Indexes', emptyLabel: 'No indexes.', rows: structure.indices, sortable: true },
+  ];
+
   return (
     <div className="space-y-6 text-sm">
-      <section>
-        <h3 className="font-semibold mb-2">Columns ({structure.columns.length})</h3>
-        <DataTable rows={structure.columns} density={density} sortable />
-      </section>
-      <section>
-        <h3 className="font-semibold mb-2">Primary Keys ({structure.primaryKeys.length})</h3>
-        {structure.primaryKeys.length ? (
-          <DataTable rows={structure.primaryKeys} density={density} />
-        ) : (
-          <p className="dv-empty">No primary keys.</p>
-        )}
-      </section>
-      <section>
-        <h3 className="font-semibold mb-2">Foreign Keys ({structure.foreignKeys.length})</h3>
-        {structure.foreignKeys.length ? (
-          <DataTable rows={structure.foreignKeys} density={density} sortable />
-        ) : (
-          <p className="dv-empty">No foreign keys.</p>
-        )}
-      </section>
-      <section>
-        <h3 className="font-semibold mb-2">Indexes ({structure.indices.length})</h3>
-        {structure.indices.length ? (
-          <DataTable rows={structure.indices} density={density} sortable />
-        ) : (
-          <p className="dv-empty">No indexes.</p>
-        )}
-      </section>
+      {sections.map(({ label, emptyLabel, rows, sortable }) => (
+        <section key={label}>
+          <h3 className="font-semibold mb-2">{label} ({rows.length})</h3>
+          {rows.length ? (
+            <DataTable rows={rows} density={density} sortable={sortable} />
+          ) : (
+            <p className="dv-empty">{emptyLabel}</p>
+          )}
+        </section>
+      ))}
     </div>
   );
 }
