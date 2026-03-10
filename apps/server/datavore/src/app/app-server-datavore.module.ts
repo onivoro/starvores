@@ -16,7 +16,7 @@ let dataSource: DataSource | null = null;
 @Module({
   imports: [
     ServeStaticModule.forRoot({
-      rootPath: join(process.cwd(), 'dist/apps/browser/datavore'),
+      rootPath: join(__dirname, 'assets', 'ui'),
       exclude: ['/api*'],
     }),
   ],
