@@ -16,17 +16,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
 
       - name: Check for version change
         id: version_check
         run: |
-          if git diff HEAD~1 HEAD -- apps/server/datavore/package.json | grep -q '"version"'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
+          LOCAL=$(node -p "require('./apps/server/datavore/package.json').version")
+          PUBLISHED=$(npm view @onivoro/app-server-datavore version 2>/dev/null || echo "0.0.0")
+          echo "local=$LOCAL published=$PUBLISHED"
+          [ "$LOCAL" != "$PUBLISHED" ] && echo "changed=true" >> "$GITHUB_OUTPUT" || echo "changed=false" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v4
         if: steps.version_check.outputs.changed == 'true'
