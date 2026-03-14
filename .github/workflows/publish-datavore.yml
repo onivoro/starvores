@@ -1,0 +1,55 @@
+name: publish-datavore
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/server/datavore/package.json
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for version change
+        id: version_check
+        run: |
+          if git diff HEAD~1 HEAD -- apps/server/datavore/package.json | grep -q '"version"'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.version_check.outputs.changed == 'true'
+        with:
+          node-version: 22.16.0
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        if: steps.version_check.outputs.changed == 'true'
+        run: npm ci
+
+      - name: Build and publish
+        if: steps.version_check.outputs.changed == 'true'
+        run: npx nx run app-server-datavore:deploy-fullstack
+        env:
+          NPM_CONFIG_PROVENANCE: true
+          NODE_ENV: production
+
+      - name: Tag release
+        if: steps.version_check.outputs.changed == 'true'
+        run: |
+          VERSION=$(node -p "require('./apps/server/datavore/package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "datavore-v${VERSION}"
+          git push origin "datavore-v${VERSION}"
