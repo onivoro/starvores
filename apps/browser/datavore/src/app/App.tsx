@@ -17,27 +17,21 @@ import {
   TableStructureInfo,
 } from '@onivoro/axios-datavore';
 import {
-  addFavorite,
   addSuccessfulQueryToHistory,
   clampSqlSplitterRatio,
   closeTabInWorkspace,
   createTab,
-  type FavoriteQuery,
   formatSqlWithFallback,
-  getFavoritesStorageKey,
   getNextTabName,
   getPinnedTablesStorageKey,
   getQueryHistoryStorageKey,
   getSqlSplitterStorageKey,
   getTabsStorageKey,
-  loadFavorites,
   loadPinnedTables,
   loadQueryHistory,
   loadSqlSplitterRatio,
   loadWorkspaceState,
-  removeFavorite,
   renameTabInWorkspace,
-  serializeFavorites,
   serializePinnedTables,
   serializeQueryHistory,
   serializeSqlSplitterRatio,
@@ -232,8 +226,7 @@ type CommandActionId =
   | 'explain-query'
   | 'format-sql'
   | 'export-csv'
-  | 'toggle-filter-bar'
-  | 'add-favorite';
+  | 'toggle-filter-bar';
 
 type ExportState = {
   status: ExportStatus;
@@ -384,12 +377,6 @@ export function App() {
   const [explainResult, setExplainResult] = useState<string | null>(null);
   const [explainOpen, setExplainOpen] = useState(false);
 
-  /* ── Favorites ── */
-  const [favoriteQueries, setFavoriteQueries] = useState<FavoriteQuery[]>([]);
-  const [favoritesOpen, setFavoritesOpen] = useState(false);
-  const [favoriteNameDraft, setFavoriteNameDraft] = useState('');
-  const [saveFavoriteOpen, setSaveFavoriteOpen] = useState(false);
-
   /* ── Export ── */
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportFilename, setExportFilename] = useState(getDefaultExportFilename());
@@ -424,8 +411,6 @@ export function App() {
   const pinnedTablesStorageKey = useMemo(() => getPinnedTablesStorageKey(queryStorageKey), [queryStorageKey]);
   const queryHistoryStorageKey = useMemo(() => getQueryHistoryStorageKey(queryStorageKey), [queryStorageKey]);
   const sqlSplitterStorageKey = useMemo(() => getSqlSplitterStorageKey(queryStorageKey), [queryStorageKey]);
-  const favoritesStorageKey = useMemo(() => getFavoritesStorageKey(queryStorageKey), [queryStorageKey]);
-
   const activeSqlTab = useMemo(
     () => sqlWorkspace.tabs.find((tab) => tab.id === sqlWorkspace.activeTabId) ?? sqlWorkspace.tabs[0],
     [sqlWorkspace.activeTabId, sqlWorkspace.tabs],
@@ -626,11 +611,6 @@ export function App() {
     setSqlSplitRatio(loadSqlSplitterRatio(localStorage.getItem(sqlSplitterStorageKey)));
   }, [sqlSplitterStorageKey]);
 
-  useEffect(() => {
-    if (!favoritesStorageKey) { setFavoriteQueries([]); return; }
-    setFavoriteQueries(loadFavorites(localStorage.getItem(favoritesStorageKey)));
-  }, [favoritesStorageKey]);
-
   /* ── Persistence effects ── */
 
   useEffect(() => {
@@ -653,11 +633,6 @@ export function App() {
     if (!sqlSplitterStorageKey) return;
     localStorage.setItem(sqlSplitterStorageKey, serializeSqlSplitterRatio(sqlSplitRatio));
   }, [sqlSplitRatio, sqlSplitterStorageKey]);
-
-  useEffect(() => {
-    if (!favoritesStorageKey) return;
-    localStorage.setItem(favoritesStorageKey, serializeFavorites(favoriteQueries));
-  }, [favoriteQueries, favoritesStorageKey]);
 
   /* ── Editor sync ── */
 
@@ -1207,28 +1182,6 @@ export function App() {
     [activeSqlTab, executeQuery, loadQueryIntoEditor],
   );
 
-  /* ── Favorites ── */
-
-  const saveFavorite = useCallback(() => {
-    const query = getQueryToExecute();
-    if (!query.trim()) return;
-    setFavoriteQueries((current) => addFavorite(current, favoriteNameDraft, query));
-    setSaveFavoriteOpen(false);
-    setFavoriteNameDraft('');
-  }, [favoriteNameDraft, getQueryToExecute]);
-
-  const deleteFavorite = useCallback((id: string) => {
-    setFavoriteQueries((current) => removeFavorite(current, id));
-  }, []);
-
-  const loadFavoriteIntoEditor = useCallback(
-    (fav: FavoriteQuery) => {
-      if (!activeSqlTab) return;
-      loadQueryIntoEditor(fav.query);
-    },
-    [activeSqlTab, loadQueryIntoEditor],
-  );
-
   /* ── CSV export ── */
 
   const exportCurrentCsv = useCallback(() => {
@@ -1267,7 +1220,6 @@ export function App() {
       if (actionId === 'format-sql') { void formatActiveSql(); return; }
       if (actionId === 'export-csv') { exportCurrentCsv(); return; }
       if (actionId === 'toggle-filter-bar') { setFilterBarOpen((c) => !c); return; }
-      if (actionId === 'add-favorite') { setSaveFavoriteOpen(true); return; }
     },
     [createNewSqlTab, executeQuery, exportCurrentCsv, focusTableFilter, formatActiveSql, runExplain],
   );
@@ -1282,7 +1234,6 @@ export function App() {
       { id: 'format-sql' as const, label: 'Format SQL', hint: 'Auto-format SQL in editor' },
       { id: 'export-csv' as const, label: 'Export CSV', hint: 'Download current results as CSV' },
       { id: 'toggle-filter-bar' as const, label: 'Toggle filter bar', hint: 'Show/hide column filters in table view' },
-      { id: 'add-favorite' as const, label: 'Save as favorite', hint: 'Save current query as a favorite' },
     ],
     [],
   );
@@ -1316,7 +1267,6 @@ export function App() {
       if (key === 'f' && event.shiftKey) { event.preventDefault(); void formatActiveSql(); return; }
       if (key === '1') { event.preventDefault(); setActiveTab('data'); return; }
       if (key === '2') { event.preventDefault(); setActiveTab('structure'); return; }
-      if (key === 's') { event.preventDefault(); setSaveFavoriteOpen(true); return; }
       if (key === 'b') { event.preventDefault(); setFilterBarOpen((c) => !c); return; }
     };
     window.addEventListener('keydown', handleKeydown);
@@ -1836,32 +1786,6 @@ export function App() {
           </section>
         )}
 
-        {/* ── Save favorite modal ── */}
-        {saveFavoriteOpen && (
-          <section className="dv-modal-backdrop" role="dialog" aria-modal="true" aria-label="Save favorite">
-            <div className="dv-modal">
-              <div className="dv-section-head">
-                <h2 className="dv-section-title">Save Query as Favorite</h2>
-              </div>
-              <label className="dv-modal-field">
-                Name
-                <input
-                  className="dv-input"
-                  value={favoriteNameDraft}
-                  onChange={(e) => setFavoriteNameDraft(e.target.value)}
-                  placeholder="My favorite query"
-                  autoFocus
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveFavorite(); } if (e.key === 'Escape') setSaveFavoriteOpen(false); }}
-                />
-              </label>
-              <p className="text-xs text-subtle font-mono break-words">{getQueryToExecute().slice(0, 200)}{getQueryToExecute().length > 200 ? '...' : ''}</p>
-              <div className="dv-modal-actions">
-                <button className="dv-btn" onClick={saveFavorite}>Save</button>
-                <button className="dv-btn-ghost" onClick={() => setSaveFavoriteOpen(false)}>Cancel</button>
-              </div>
-            </div>
-          </section>
-        )}
 
         {/* ── Command palette ── */}
         {commandPaletteOpen && (
@@ -1924,16 +1848,13 @@ export function App() {
                 <div className="dv-section-head">
                   <h2 className="dv-section-title">SQL Query Workspace</h2>
                   <p className="dv-section-meta">
-                    Cmd+Enter run &middot; Shift+Cmd+Enter explain &middot; Cmd+S save favorite
+                    Cmd+Enter run &middot; Shift+Cmd+Enter explain
                   </p>
                 </div>
                 <div className="dv-toolbar-actions">
                   <button className="dv-btn-ghost" onClick={() => void formatActiveSql()}>Format</button>
                   <button className="dv-btn-ghost" onClick={() => setQueryHistoryOpen((c) => !c)}>
                     {queryHistoryOpen ? 'Hide History' : 'History'}
-                  </button>
-                  <button className="dv-btn-ghost" onClick={() => setFavoritesOpen((c) => !c)}>
-                    {favoritesOpen ? 'Hide Favorites' : 'Favorites'}
                   </button>
                   <button className="dv-btn-ghost" onClick={() => { updateActiveTabQuery(''); focusEditor(); }}>Clear</button>
                   <span className="dv-toolbar-sep" />
@@ -2024,35 +1945,6 @@ export function App() {
                   }}
                 />
               </div>
-
-              {/* Favorites panel */}
-              {favoritesOpen && (
-                <section className="dv-favorites">
-                  <div className="dv-section-head">
-                    <h3 className="dv-section-title">Favorites</h3>
-                    <p className="dv-section-meta">{favoriteQueries.length} saved</p>
-                  </div>
-                  {favoriteQueries.length ? (
-                    <div className="dv-favorites-list">
-                      {favoriteQueries.map((fav) => (
-                        <div className="dv-favorite-item" key={fav.id}>
-                          <div className="dv-favorite-main">
-                            <div className="dv-favorite-name">{fav.name}</div>
-                            <button className="dv-favorite-query" onClick={() => loadFavoriteIntoEditor(fav)}>
-                              {fav.query.slice(0, 120)}{fav.query.length > 120 ? '...' : ''}
-                            </button>
-                          </div>
-                          <button className="dv-btn-ghost dv-btn-sm" onClick={() => deleteFavorite(fav.id)} title="Remove">
-                            &times;
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="dv-empty">No favorites saved. Press Cmd+S to save a query.</p>
-                  )}
-                </section>
-              )}
 
               {/* History panel */}
               {queryHistoryOpen && (

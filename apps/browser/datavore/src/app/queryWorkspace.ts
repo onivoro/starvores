@@ -17,18 +17,10 @@ export type SqlQueryHistoryItem = {
   executedAt: string;
 };
 
-export type FavoriteQuery = {
-  id: string;
-  name: string;
-  query: string;
-  createdAt: string;
-};
-
 export const QUERY_TABS_STORAGE_PREFIX = 'datavore-query-tabs';
 export const PINNED_TABLES_STORAGE_PREFIX = 'datavore-pinned-tables';
 export const QUERY_HISTORY_STORAGE_PREFIX = 'datavore-query-history';
 export const SQL_SPLITTER_STORAGE_PREFIX = 'datavore-sql-splitter';
-export const FAVORITES_STORAGE_PREFIX = 'datavore-favorites';
 export const DEFAULT_SQL_SPLITTER_RATIO = 0.5;
 export const MIN_SQL_SPLITTER_RATIO = 0.25;
 export const MAX_SQL_SPLITTER_RATIO = 0.75;
@@ -38,7 +30,6 @@ const NEW_TAB_NAME_PREFIX = 'Query';
 
 const makeId = (): string => `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const makeHistoryId = (): string => `history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-const makeFavId = (): string => `fav-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 export const createTab = (query: string, index: number, name?: string): SqlQueryTab => ({
   id: makeId(),
@@ -64,11 +55,6 @@ export const getQueryHistoryStorageKey = (queryStorageKey: string | null): strin
 export const getSqlSplitterStorageKey = (queryStorageKey: string | null): string | null => {
   if (!queryStorageKey) return null;
   return `${SQL_SPLITTER_STORAGE_PREFIX}:${queryStorageKey}`;
-};
-
-export const getFavoritesStorageKey = (queryStorageKey: string | null): string | null => {
-  if (!queryStorageKey) return null;
-  return `${FAVORITES_STORAGE_PREFIX}:${queryStorageKey}`;
 };
 
 const parseJson = <T>(value: string | null): T | null => {
@@ -97,17 +83,6 @@ const isValidHistoryItem = (value: unknown): value is SqlQueryHistoryItem => {
     typeof item.elapsedMs === 'number' &&
     Number.isFinite(item.elapsedMs) &&
     typeof item.executedAt === 'string'
-  );
-};
-
-const isValidFavorite = (value: unknown): value is FavoriteQuery => {
-  if (!value || typeof value !== 'object') return false;
-  const fav = value as Partial<FavoriteQuery>;
-  return (
-    typeof fav.id === 'string' &&
-    typeof fav.name === 'string' &&
-    typeof fav.query === 'string' &&
-    typeof fav.createdAt === 'string'
   );
 };
 
@@ -236,28 +211,6 @@ export const loadSqlSplitterRatio = (rawValue: string | null): number => {
 };
 
 export const serializeSqlSplitterRatio = (ratio: number): string => String(clampSqlSplitterRatio(ratio));
-
-export const loadFavorites = (rawValue: string | null): FavoriteQuery[] => {
-  const parsed = parseJson<unknown>(rawValue);
-  if (!Array.isArray(parsed)) return [];
-  return parsed.filter(isValidFavorite);
-};
-
-export const serializeFavorites = (favorites: FavoriteQuery[]): string => JSON.stringify(favorites);
-
-export const addFavorite = (favorites: FavoriteQuery[], name: string, query: string): FavoriteQuery[] => {
-  const newFav: FavoriteQuery = {
-    id: makeFavId(),
-    name: name.trim() || 'Untitled',
-    query: query.trim(),
-    createdAt: new Date().toISOString(),
-  };
-  return [newFav, ...favorites];
-};
-
-export const removeFavorite = (favorites: FavoriteQuery[], id: string): FavoriteQuery[] => {
-  return favorites.filter((f) => f.id !== id);
-};
 
 const SQL_KEYWORDS = new Set([
   'select',
