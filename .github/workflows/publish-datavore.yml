@@ -29,10 +29,22 @@ jobs:
         if: steps.version_check.outputs.changed == 'true'
         with:
           node-version: 22.16.0
+          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         if: steps.version_check.outputs.changed == 'true'
         run: npm ci
+
+      - name: Obtain npm publish token via OIDC
+        if: steps.version_check.outputs.changed == 'true'
+        run: |
+          OIDC_TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://registry.npmjs.org" | jq -r '.value')
+          NPM_TOKEN=$(curl -sS -X POST https://registry.npmjs.org/-/npm/v1/security/oidc/token \
+            -H "Content-Type: application/json" \
+            -d "{\"token\": \"${OIDC_TOKEN}\"}" | jq -r '.token')
+          echo "::add-mask::${NPM_TOKEN}"
+          echo "NPM_TOKEN=${NPM_TOKEN}" >> "$GITHUB_ENV"
 
       - name: Build and publish
         if: steps.version_check.outputs.changed == 'true'
@@ -40,6 +52,7 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: true
           NODE_ENV: production
+          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
 
       - name: Tag release
         if: steps.version_check.outputs.changed == 'true'
