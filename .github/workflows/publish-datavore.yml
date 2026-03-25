@@ -41,6 +41,7 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: true
           NODE_ENV: production
+          NODE_AUTH_TOKEN: ''
 
       - name: Tag release
         if: steps.version_check.outputs.changed == 'true'

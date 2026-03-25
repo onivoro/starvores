@@ -1,6 +1,6 @@
 {
   "name": "@onivoro/app-server-datavore",
-  "version": "24.34.4",
+  "version": "24.34.3",
   "description": "DataVore NestJS application for data processing and management",
   "license": "MIT",
   "type": "commonjs",
