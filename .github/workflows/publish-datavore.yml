@@ -29,7 +29,6 @@ jobs:
         if: steps.version_check.outputs.changed == 'true'
         with:
           node-version: 22.16.0
-          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         if: steps.version_check.outputs.changed == 'true'
@@ -41,7 +40,6 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: true
           NODE_ENV: production
-          NODE_AUTH_TOKEN: ''
 
       - name: Tag release
         if: steps.version_check.outputs.changed == 'true'

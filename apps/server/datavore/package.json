@@ -1,17 +1,17 @@
 {
   "name": "@onivoro/app-server-datavore",
-  "version": "24.34.3",
+  "version": "24.34.4",
   "description": "DataVore NestJS application for data processing and management",
   "license": "MIT",
   "type": "commonjs",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "bin": {
-    "datavore": "./main.js"
+    "datavore": "main.js"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/onivoro/starvores.git"
+    "url": "git+https://github.com/onivoro/starvores.git"
   },
   "keywords": [
     "nestjs",
