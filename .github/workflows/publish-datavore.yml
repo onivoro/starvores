@@ -38,11 +38,34 @@ jobs:
       - name: Obtain npm publish token via OIDC
         if: steps.version_check.outputs.changed == 'true'
         run: |
-          OIDC_TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://registry.npmjs.org" | jq -r '.value')
-          NPM_TOKEN=$(curl -sS -X POST https://registry.npmjs.org/-/npm/v1/security/oidc/token \
+          set -eo pipefail
+
+          echo "Requesting OIDC token from GitHub..."
+          OIDC_RESPONSE=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://registry.npmjs.org")
+          OIDC_TOKEN=$(echo "$OIDC_RESPONSE" | jq -r '.value')
+          if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
+            echo "::error::Failed to get OIDC token from GitHub. Response: $OIDC_RESPONSE"
+            exit 1
+          fi
+          echo "OIDC token obtained (length: ${#OIDC_TOKEN})"
+
+          echo "Exchanging OIDC token with npm registry..."
+          NPM_RESPONSE=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST \
+            https://registry.npmjs.org/-/npm/v1/security/oidc/token \
             -H "Content-Type: application/json" \
-            -d "{\"token\": \"${OIDC_TOKEN}\"}" | jq -r '.token')
+            -d "{\"token\": \"${OIDC_TOKEN}\"}")
+          HTTP_STATUS=$(echo "$NPM_RESPONSE" | tail -1 | sed 's/HTTP_STATUS://')
+          BODY=$(echo "$NPM_RESPONSE" | sed '$d')
+          echo "npm OIDC response status: $HTTP_STATUS"
+          echo "npm OIDC response body: $BODY"
+
+          NPM_TOKEN=$(echo "$BODY" | jq -r '.token')
+          if [ -z "$NPM_TOKEN" ] || [ "$NPM_TOKEN" = "null" ]; then
+            echo "::error::Failed to exchange OIDC token with npm. Status: $HTTP_STATUS Body: $BODY"
+            exit 1
+          fi
+          echo "npm token obtained successfully"
           echo "::add-mask::${NPM_TOKEN}"
           echo "NPM_TOKEN=${NPM_TOKEN}" >> "$GITHUB_ENV"
 
