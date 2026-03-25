@@ -28,7 +28,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.version_check.outputs.changed == 'true'
         with:
-          node-version: 22.16.0
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
@@ -41,7 +41,6 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: true
           NODE_ENV: production
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Tag release
         if: steps.version_check.outputs.changed == 'true'
