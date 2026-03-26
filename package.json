@@ -24,6 +24,7 @@
     "@nestjs/serve-static": "~4.0.2",
     "@radix-ui/react-tabs": "^1.1.2",
     "axios": "~1.7.7",
+    "compromise": "^14.15.0",
     "core-js": "~3.38.1",
     "pg": "~8.13.1",
     "react": "^18.3.1",
