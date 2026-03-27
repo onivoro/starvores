@@ -74,16 +74,20 @@ The parent notebook's file watcher, search index, and link graph skip any subdir
 ## 4. Functional Requirements
 
 ### 4.1 Knowledge Organization
-* **Notebook Sidebar:** A hierarchical tree view showing all discovered notebooks in the workspace. Each notebook displays its contained folders and notes. Notebooks are visually distinct from regular directories.
+* **Notebook Sidebar:** A dedicated sidebar panel (separate from VS Code's native Explorer) showing all discovered notebooks in the workspace. Each notebook displays its contained folders and notes. Notebooks are visually distinct from regular directories. The Notebook Sidebar coexists alongside the Explorer — it does not replace it. The Explorer shows the raw filesystem; the Notebook Sidebar shows Onyvore's view of the workspace (only notebooks and their managed `.md` files).
 * **Automatic Link Graph:** Connections between notes are computed automatically within each notebook — no manual linking syntax required. Links do not cross notebook boundaries. See Section 4.4 for the linking algorithm.
-* **Backlinks Panel:** A dedicated sidebar panel displays all notes connected to the active note, ranked by link weight (strongest connections first).
+* **Links Panel:** A dedicated sidebar panel for the active note, divided into two sections:
+  * **Outbound Links:** Notes that the active note links *to* (noun phrases extracted from this note matched a target note's title). Clicking an entry navigates to the target note. Each entry shows the matched noun phrase and occurrence count (e.g., "hotsauce (5 mentions) → hotsauce.md").
+  * **Inbound Links (Backlinks):** Notes that link *to* the active note (other notes contain noun phrases matching this note's title). Each entry shows the source note, matched noun phrase, and occurrence count (e.g., "recipes.md — hotsauce (5 mentions)"). Clicking navigates to the source note.
+  Both sections are ranked by link weight (strongest connections first). This provides bidirectional navigation — users can discover what the current note references and what references it.
 * **Orphan Detection:** Notes with zero inbound and outbound links are surfaced in the sidebar as "Unlinked Notes," helping users discover disconnected knowledge. Computed directly from the link graph at zero additional cost.
 
 ### 4.2 File Watching
 * **Continuous Monitoring:** Uses VS Code's `FileSystemWatcher` API to detect `.md` file creates, changes, and deletes within each notebook in real-time, regardless of the source. Non-markdown files are ignored by the watcher. Paths matching `.onyvoreignore` patterns are excluded (see Section 5.2). Subdirectories containing `.onyvore/` (nested notebooks) are excluded — each notebook manages its own watcher independently.
-* **Incremental Updates:** File watcher events trigger incremental updates to the notebook's search index and link graph, keeping both current without full re-scans. The update behavior depends on the event type:
-  * **Create:** The new file is indexed and its noun phrases are extracted and matched against existing titles/headings (outbound links). Additionally, existing noun phrases already cached in the link graph are re-evaluated against the new file's title and headings to form inbound links. This reverse match is a string comparison against cached data — no NLP re-run is needed.
-  * **Change:** The changed file's noun phrases are re-extracted and its outbound edges are rebuilt. If the file's title or headings changed, a reverse match against cached noun phrases is also performed to update inbound edges.
+* **Debounce:** File watcher events are debounced with a 300ms window. Rapid changes to the same file (e.g., auto-save, fast edits) are coalesced into a single update. When multiple files change within the debounce window (e.g., an agent writing a batch of files), all changes are batched and processed together. This prevents a storm of incremental updates and avoids redundant frequency ceiling recalculations.
+* **Incremental Updates:** File watcher events (after debounce) trigger incremental updates to the notebook's search index and link graph, keeping both current without full re-scans. The update behavior depends on the event type:
+  * **Create:** The new file is indexed and its noun phrases are extracted and matched against existing note titles (outbound links). Additionally, existing noun phrases already cached in the link graph are re-evaluated against the new file's title to form inbound links. This reverse match is a string comparison against cached data — no NLP re-run is needed.
+  * **Change:** The changed file's noun phrases are re-extracted and its outbound edges are rebuilt. If the file was renamed, a reverse match against cached noun phrases is also performed to update inbound edges.
   * **Delete:** The file's entries are removed from `metadata.json`, `links.json`, and the search index. Dangling backlinks (edges pointing to the deleted file) are pruned from the graph.
 * **Rename Handling:** `FileSystemWatcher` emits a delete + create pair for renames. The delete path prunes old edges; the create path rebuilds them against the new filename and content. The link graph self-heals — no stable file IDs are needed. Note: this approach performs redundant work (full NLP extraction on content that hasn't changed). Optimizing rename detection (e.g., matching content hashes within a short time window to coalesce delete + create into a single rename operation) is deferred to a future iteration.
 
@@ -139,11 +143,9 @@ Compromise is the pure-JS NLP library used for noun phrase extraction. Its behav
 5. **Filter — Minimum Length:** Single-character tokens and single-letter words are excluded.
 
 #### Matching
-Surviving noun phrases are matched **case-insensitively** against:
-* **Note titles** (filenames without the `.md` extension).
-* **Headings** (`#`, `##`, `###`, etc.) across all notes in the notebook.
+Surviving noun phrases are matched **case-insensitively** against **note titles** (filenames without the `.md` extension). Only titles are match targets — if a concept is important enough to be linked to, it should be its own note. This encourages atomic note-taking and produces fewer false positives.
 
-A match produces a weighted edge in the link graph. Links target the file as a whole, not specific headings within it.
+A match produces a weighted edge in the link graph. **Self-links are excluded** — a note's own title is not a valid match target for noun phrases extracted from that same note.
 
 **Full phrase matches are weighted higher than constituent matches.** If "onyvore search engine" is extracted from Note A and matches a note titled `Onyvore Search Engine.md` (full phrase match), that edge receives a higher weight than a match from the constituent "onyvore" against `Onyvore.md`. Specifically, full phrase match weights are multiplied by 2x relative to constituent match weights. This ensures that more specific connections rank above incidental ones in the Backlinks Panel.
 
@@ -152,7 +154,7 @@ Each edge stores the occurrence count of the matched noun phrase in the source n
 ```json
 { "source": "note-a.md", "target": "note-b.md", "noun": "sourdough", "weight": 5, "matchType": "full" }
 ```
-* `"matchType": "full"` — the extracted phrase matched the target title/heading exactly. Weight = occurrence count × 2.
+* `"matchType": "full"` — the extracted phrase matched the target title exactly. Weight = occurrence count × 2.
 * `"matchType": "constituent"` — a constituent of a larger extracted phrase matched the target. Weight = occurrence count × 1.
 
 Weight is used to rank backlinks — notes with stronger connections surface first in the Backlinks Panel.
@@ -160,7 +162,7 @@ Weight is used to rank backlinks — notes with stronger connections surface fir
 ### 4.5 Metadata
 Onyvore derives metadata for each note and stores it in `metadata.json`. Metadata is computed from filesystem state:
 * **Timestamps:** Filesystem stat (birth time for created, modification time for updated). These may be less reliable for copied or moved files.
-* **Extracted headings:** All headings (`#`, `##`, etc.) found in the note, used as link targets by the matching step.
+* **Last-seen modification time:** Used by startup reconciliation (Section 4.4) to detect files changed while the extension was not running.
 
 ---
 
@@ -168,10 +170,9 @@ Onyvore derives metadata for each note and stores it in `metadata.json`. Metadat
 
 ### 5.1 Data Persistence (`.onyvore/` Folder)
 Each notebook contains a `.onyvore/` directory with:
-* `config.json`: Stores notebook-specific settings.
 * `index.bin`: A serialized binary snapshot of the Orama search index.
 * `links.json`: The computed weighted link graph between all notes in the notebook.
-* `metadata.json`: Derived metadata for each note (timestamps, extracted headings, last-seen modification time for reconciliation). See Section 4.5.
+* `metadata.json`: Derived metadata for each note (timestamps, last-seen modification time for reconciliation). See Section 4.5.
 
 All files in `.onyvore/` are derived artifacts. They can be deleted and fully regenerated from the notebook's `.md` files.
 
@@ -204,7 +205,13 @@ Ignored paths are excluded from:
 ## 6. User Experience (UX)
 
 ### 6.1 Notebook Discovery
-On workspace activation, Onyvore scans the workspace for directories containing `.onyvore/`. Each discovered notebook is registered and its file watcher, search index, and link graph are initialized. New notebooks can be created at any time via the Command Palette.
+On workspace activation, Onyvore scans the workspace recursively at unlimited depth for directories containing `.onyvore/`. Each discovered notebook is registered and its file watcher, search index, and link graph are initialized. New notebooks can be created at any time via `Onyvore: Initialize Notebook`.
+
+Notebook discovery only runs at two points:
+* **Workspace activation** (automatic).
+* **Manual invocation** via `Onyvore: Discover Notebooks` (user-triggered).
+
+Discovery does not run continuously. If a `.onyvore/` directory is created mid-session (e.g., by an agent or script running `mkdir some-dir/.onyvore`), Onyvore will not detect it until the user runs `Onyvore: Discover Notebooks` or restarts the workspace. This is intentional — watching the entire workspace tree for new `.onyvore/` directories would be expensive and is not justified for a rare event.
 
 ### 6.2 Active Notebook
 The **active notebook** is the notebook that contains the file currently focused in the editor. All notebook-scoped commands (Search) operate on the active notebook. The active notebook is determined automatically:
@@ -221,7 +228,9 @@ When no notebook is active, notebook-scoped commands are disabled with a message
 
 ### 6.4 Command Palette Highlights
 * `Onyvore: Initialize Notebook` (Create a new notebook in the focused directory).
+* `Onyvore: Discover Notebooks` (Re-scan the workspace for `.onyvore/` directories and register any newly discovered notebooks).
 * `Onyvore: Search Notebook` (Fuzzy-search overlay, scoped to the active notebook).
+* `Onyvore: Rebuild Notebook` (Delete all derived artifacts in `.onyvore/` and trigger a full re-index from scratch. Useful as a recovery mechanism if the index or link graph enters a bad state).
 
 ---
 
@@ -242,7 +251,7 @@ When no notebook is active, notebook-scoped commands are disabled with a message
 Obsidian is Onyvore's closest competitor. Both are markdown-first, file-based knowledge management tools. The following distinctions define Onyvore's core value proposition:
 
 **1. Automatic linking vs. manual wikilinks.**
-Obsidian requires users to explicitly create `[[wikilinks]]` between notes. This means connections only exist where the user remembered to create them. Onyvore computes links automatically using NLP — every note is analyzed for noun phrases and matched against titles and headings across the notebook. Connections are discovered, not authored. For large knowledge bases, this surfaces relationships that manual linking would never capture.
+Obsidian requires users to explicitly create `[[wikilinks]]` between notes. This means connections only exist where the user remembered to create them. Onyvore computes links automatically using NLP — every note is analyzed for noun phrases and matched against note titles across the notebook. Connections are discovered, not authored. For large knowledge bases, this surfaces relationships that manual linking would never capture.
 
 **2. Zero file mutation vs. frontmatter injection.**
 Obsidian injects YAML frontmatter into files and rewrites content when links are updated or files are renamed. Onyvore never touches user files. All metadata, links, and indexes are sidecar artifacts in `.onyvore/`. This makes Onyvore safe for environments where files are authored by multiple tools — AI agents, scripts, CI pipelines — because there is no risk of Onyvore's modifications conflicting with external writes.
