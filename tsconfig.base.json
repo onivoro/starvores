@@ -53,6 +53,9 @@
       ],
       "@onivoro/server-typeorm-postgres": [
         "libs/server/typeorm-postgres/src/index.ts"
+      ],
+      "@onivoro/isomorphic-onyvore": [
+        "libs/isomorphic/onyvore/src/index.ts"
       ]
     }
   },

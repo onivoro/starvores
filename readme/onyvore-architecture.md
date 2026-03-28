@@ -431,7 +431,7 @@ export interface FileEventBatch {
 
 ```typescript
 import nlp from 'compromise';
-import { STOP_NOUNS } from '@sqlvore/isomorphic-onyvore';
+import { STOP_NOUNS } from '@onivoro/isomorphic-onyvore';
 
 interface ExtractionResult {
   /** All surviving candidates with their occurrence counts */
@@ -712,14 +712,14 @@ Key sections of `apps/vscode/onyvore/package.json`:
   "displayName": "Onyvore",
   "description": "Local-first personal knowledge management for VS Code",
   "version": "1.0.0",
-  "publisher": "sqlvore",
+  "publisher": "onivoro",
   "engines": { "vscode": "^1.74.0" },
   "categories": ["Other"],
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/main.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sqlvore/monorepo"
+    "url": "https://github.com/onivoro/starvores.git"
   },
   "contributes": {
     "commands": [
@@ -756,7 +756,7 @@ Key sections of `apps/vscode/onyvore/package.json`:
 Add to the existing `paths` object:
 
 ```json
-"@sqlvore/isomorphic-onyvore": ["libs/isomorphic/onyvore/src/index.ts"]
+"@onivoro/isomorphic-onyvore": ["libs/isomorphic/onyvore/src/index.ts"]
 ```
 
 ### 6.2 Project Configurations
@@ -803,7 +803,7 @@ Add to the existing `paths` object:
       "executor": "nx:run-commands",
       "dependsOn": ["build"],
       "options": {
-        "command": "cd apps/vscode/onyvore/dist && node -e \"const p=require('./package.json');p.main='./main.js';require('fs').writeFileSync('./package.json',JSON.stringify(p,null,2))\" && mkdir -p dist && mv server dist/server && mv webview dist/webview && vsce package --no-dependencies --skip-license -o ../onyvore.vsix --baseContentUrl https://github.com/sqlvore/monorepo --baseImagesUrl https://github.com/sqlvore/monorepo"
+        "command": "cd apps/vscode/onyvore/dist && node -e \"const p=require('./package.json');p.main='./main.js';require('fs').writeFileSync('./package.json',JSON.stringify(p,null,2))\" && mkdir -p dist && mv server dist/server && mv webview dist/webview && vsce package --no-dependencies --skip-license -o ../onyvore.vsix --baseContentUrl https://github.com/onivoro/starvores --baseImagesUrl https://github.com/onivoro/starvores"
       }
     }
   },
