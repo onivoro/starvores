@@ -195,9 +195,11 @@ Ignored paths are excluded from:
 
 ### 5.3 Technology Stack
 * **Runtime:** Node.js (VS Code Extension Host).
+* **Framework:** NestJS via `@onivoro/server-vscode` (three-tier architecture: extension host + stdio server + React webview).
 * **Search Engine:** Orama (Pure JS).
 * **NLP:** compromise (Pure JS noun-phrase extraction).
-* **Bundler:** `esbuild` (Compiles all dependencies into a single, lightweight `extension.js`).
+* **Webview UI:** React + Redux + Material UI.
+* **Build:** Nx monorepo. Webpack (extension host + stdio server), Vite (browser webview).
 
 ---
 
@@ -267,7 +269,7 @@ Obsidian's linking model assumes a human author creating `[[wikilinks]]` manuall
 ---
 
 ## 8. Distribution Strategy
-* **Universal VSIX:** A single bundle package under 2MB.
+* **Universal VSIX:** A single bundle package.
 * **Platform Support:** Functioning immediately on Windows, macOS, and Linux.
 * **Zero Setup:** No external installation of Bun, SQLite, or CLI tools required.
 
