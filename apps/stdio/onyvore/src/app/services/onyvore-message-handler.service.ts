@@ -235,7 +235,7 @@ export class OnyvoreMessageHandlerService {
     notebookId: string;
     query: string;
     limit?: number;
-  }): Promise<{ results: Array<{ relativePath: string; title: string; score: number }> }> {
+  }): Promise<{ results: Array<{ relativePath: string; title: string; score: number; snippets: string[] }> }> {
     const { notebookId, query, limit } = params;
     const results = await this.searchIndexService.searchNotebook(
       notebookId,

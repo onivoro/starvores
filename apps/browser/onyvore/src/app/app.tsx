@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSelector } from 'react-redux';
 import { useRpc, useRpcResponse } from './hooks/use-rpc-request.hook';
 import { onyvoreRpcMethods } from '@onivoro/isomorphic-onyvore';
@@ -22,9 +22,12 @@ export default function App() {
   );
 
   const [viewingId, setViewingId] = useState<string | null>(null);
+  const [pendingInit, setPendingInit] = useState(false);
+  const prevNotebookCount = useRef(notebooks.length);
 
-  // Default to active notebook if no explicit selection
-  const currentNotebookId = viewingId ?? activeNotebookId;
+  // Default to active notebook, or the only notebook if there's just one
+  const currentNotebookId =
+    viewingId ?? activeNotebookId ?? (notebooks.length === 1 ? notebooks[0].id : null);
 
   // When pick directory returns, initialize the notebook
   useEffect(() => {
@@ -37,10 +40,25 @@ export default function App() {
           method: onyvoreRpcMethods.NOTEBOOK_INITIALIZE,
           params: { directoryPath },
         });
+        setPendingInit(true);
       }
       setPickRequestId(null);
     }
   }, [pickResponse, sendRequest]);
+
+  // Auto-select newly initialized notebook when it appears in the list
+  useEffect(() => {
+    if (pendingInit && notebooks.length > prevNotebookCount.current) {
+      const newNotebook = notebooks.find(
+        (n) => !prevNotebookCount.current || n.id !== viewingId,
+      );
+      if (newNotebook) {
+        setViewingId(newNotebook.id);
+      }
+      setPendingInit(false);
+    }
+    prevNotebookCount.current = notebooks.length;
+  }, [notebooks, pendingInit]);
 
   const handleAddNotebook = () => {
     const id = sendRequest({

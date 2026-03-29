@@ -30701,10 +30701,54 @@ let SearchIndexService = class SearchIndexService {
                 relativePath: doc.relativePath,
                 title: doc.title,
                 score: hit.score * boost,
+                snippets: this.extractSnippets(doc.content, query),
             };
         });
         boosted.sort((a, b) => b.score - a.score);
-        return boosted.slice(0, limit);
+        return boosted.filter((r) => r.snippets.length > 0).slice(0, limit);
+    }
+    extractSnippets(content, query) {
+        if (!content)
+            return [];
+        const lowerContent = content.toLowerCase();
+        const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+        if (terms.length === 0)
+            return [];
+        // Find all match positions
+        const positions = [];
+        for (const term of terms) {
+            let idx = 0;
+            while ((idx = lowerContent.indexOf(term, idx)) !== -1) {
+                positions.push(idx);
+                idx += term.length;
+            }
+        }
+        if (positions.length === 0)
+            return [];
+        positions.sort((a, b) => a - b);
+        // Merge overlapping windows into non-overlapping snippets
+        const windowSize = 120;
+        const padding = 40;
+        const windows = [];
+        for (const pos of positions) {
+            const start = Math.max(0, pos - padding);
+            const end = Math.min(content.length, pos + padding + windowSize - 2 * padding);
+            const last = windows[windows.length - 1];
+            if (last && start <= last.end) {
+                last.end = Math.max(last.end, end);
+            }
+            else {
+                windows.push({ start, end });
+            }
+        }
+        return windows.map(({ start, end }) => {
+            let snippet = content.slice(start, end).replace(/\s+/g, ' ').trim();
+            if (start > 0)
+                snippet = '...' + snippet;
+            if (end < content.length)
+                snippet = snippet + '...';
+            return snippet;
+        });
     }
     async serialize(notebookId) {
         const index = this.indexes.get(notebookId);

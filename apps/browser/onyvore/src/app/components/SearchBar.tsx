@@ -1,7 +1,27 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, type ReactNode } from 'react';
 import { useRpc, useRpcResponse } from '../hooks/use-rpc-request.hook';
 import { onyvoreRpcMethods } from '@onivoro/isomorphic-onyvore';
-import { SearchIcon } from './Icons';
+import { SearchIcon, FileIcon } from './Icons';
+import { TreeItem } from './TreeItem';
+
+function highlightSnippet(snippet: string, query: string): ReactNode[] {
+  const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return [snippet];
+  const pattern = new RegExp(`(${terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi');
+  const parts = snippet.split(pattern);
+  return parts.map((part, i) =>
+    terms.some(t => part.toLowerCase() === t)
+      ? <mark key={i} className="ony-searchbar__highlight">{part}</mark>
+      : part
+  );
+}
+
+interface SearchResult {
+  relativePath: string;
+  title: string;
+  score: number;
+  snippets: string[];
+}
 
 interface SearchBarProps {
   notebookId: string | null;
@@ -11,16 +31,12 @@ export function SearchBar({ notebookId }: SearchBarProps) {
   const { sendRequest } = useRpc();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<
-    Array<{ relativePath: string; title: string; score: number }>
-  >([]);
+  const [results, setResults] = useState<SearchResult[]>([]);
   const [requestId, setRequestId] = useState<string | null>(null);
   const response = useRpcResponse(requestId);
 
   if (response?.result && requestId) {
-    const data = response.result as {
-      results: Array<{ relativePath: string; title: string; score: number }>;
-    };
+    const data = response.result as { results: SearchResult[] };
     setResults(data.results);
     setRequestId(null);
   }
@@ -76,27 +92,30 @@ export function SearchBar({ notebookId }: SearchBarProps) {
         />
       </div>
       {results.length > 0 && (
-        <ul className="ony-searchbar__results">
+        <div className="ony-searchbar__results">
           {results.map((result) => (
-            <li
-              key={result.relativePath}
-              className="ony-searchbar__result"
-              tabIndex={0}
-              role="button"
-              onClick={() => handleResultClick(result.relativePath)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleResultClick(result.relativePath);
-              }}
-            >
-              <span className="ony-searchbar__result-title">
-                {result.title}
-              </span>
-              <span className="ony-searchbar__result-path">
-                {result.relativePath}
-              </span>
-            </li>
+            <div key={result.relativePath} className="ony-searchbar__result-group">
+              <ul className="ony-tree">
+                <TreeItem
+                  label={result.title}
+                  sublabel={result.relativePath}
+                  icon={<FileIcon />}
+                  badge={result.snippets.length}
+                  onClick={() => handleResultClick(result.relativePath)}
+                />
+              </ul>
+              {result.snippets.map((snippet, i) => (
+                <div
+                  key={i}
+                  className="ony-searchbar__snippet"
+                  onClick={() => handleResultClick(result.relativePath)}
+                >
+                  {highlightSnippet(snippet, query)}
+                </div>
+              ))}
+            </div>
           ))}
-        </ul>
+        </div>
       )}
       {query.length > 0 && results.length === 0 && (
         <div className="ony-searchbar__empty">No results found</div>

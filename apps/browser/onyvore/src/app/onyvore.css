@@ -727,34 +727,43 @@ body {
 }
 
 .ony-searchbar__results {
-  list-style: none;
   border-bottom: 1px solid color-mix(in srgb, var(--vscode-editor-foreground) 15%, transparent);
-  max-height: 240px;
+  max-height: 50%;
   overflow-y: auto;
   flex-shrink: 0;
 }
 
-.ony-searchbar__result {
-  display: flex;
-  flex-direction: column;
-  padding: 4px 12px;
+.ony-searchbar__result-group {
+  border-bottom: 1px solid color-mix(in srgb, var(--vscode-editor-foreground) 8%, transparent);
+}
+
+.ony-searchbar__result-group:last-child {
+  border-bottom: none;
+}
+
+.ony-searchbar__snippet {
+  padding: 2px 12px 2px 42px;
+  font-size: 0.82em;
+  color: var(--vscode-editor-foreground);
+  opacity: 0.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.5;
   cursor: pointer;
-  gap: 1px;
 }
 
-.ony-searchbar__result:hover {
-  background: color-mix(in srgb, var(--vscode-editor-foreground) 10%, transparent);
+.ony-searchbar__snippet:hover {
+  opacity: 0.85;
+  background: color-mix(in srgb, var(--vscode-editor-foreground) 5%, transparent);
 }
 
-.ony-searchbar__result-title {
-  font-size: var(--vscode-font-size, 13px);
+.ony-searchbar__highlight {
+  background: color-mix(in srgb, var(--vscode-editor-foreground) 20%, transparent);
   color: var(--vscode-editor-foreground);
-}
-
-.ony-searchbar__result-path {
-  font-size: 0.85em;
-  color: var(--vscode-editor-foreground);
-  opacity: 0.5;
+  opacity: 1;
+  border-radius: 1px;
+  padding: 0 1px;
 }
 
 .ony-searchbar__empty {
