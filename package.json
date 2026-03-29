@@ -12,7 +12,8 @@
     "db:up:local": "cd docker/dev && docker compose up -d --remove-orphans",
     "db:down:local": "cd docker/dev && docker compose down",
     "fmt": "nx format --fix",
-    "onyvore:vsix": "npx nx run app-vscode-onyvore:package"
+    "onyvore:vsix": "npx nx run app-vscode-onyvore:package",
+    "onyvore:install": "code --install-extension apps/vscode/onyvore/onyvore.vsix"
   },
   "private": true,
   "dependencies": {
