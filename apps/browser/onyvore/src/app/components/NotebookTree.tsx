@@ -10,7 +10,7 @@ import {
   Box,
 } from '@mui/material';
 import DescriptionIcon from '@mui/icons-material/Description';
-import type { NotebookInfo, NotebookFile } from '@onivoro/isomorphic-onyvore';
+import { onyvoreRpcMethods, type NotebookInfo, type NotebookFile } from '@onivoro/isomorphic-onyvore';
 import { useRpc } from '../hooks/use-rpc-request.hook';
 
 interface NotebookTreeProps {
@@ -22,7 +22,7 @@ export function NotebookTree({ notebook }: NotebookTreeProps) {
 
   const handleFileClick = (relativePath: string) => {
     sendRequest({
-      method: 'openFile',
+      method: onyvoreRpcMethods.OPEN_FILE,
       params: { notebookId: notebook.id, relativePath },
     });
   };

@@ -73,7 +73,7 @@ export class OnyvoreCommandHandlerService {
     }
 
     // Signal the webview to show the search overlay
-    this.messageBus.sendNotification('search.show', { notebookId });
+    this.messageBus.sendNotification(onyvoreRpcMethods.SEARCH_SHOW, { notebookId });
   }
 
   @CommandHandler(onyvoreCommands.REBUILD_NOTEBOOK)

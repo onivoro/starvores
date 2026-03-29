@@ -70,7 +70,7 @@ export function SearchOverlay() {
 
   const handleResultClick = (relativePath: string) => {
     sendRequest({
-      method: 'openFile',
+      method: onyvoreRpcMethods.OPEN_FILE,
       params: { notebookId, relativePath },
     });
     dispatch(searchResultsActions.hide());

@@ -39,7 +39,7 @@ export function UnlinkedNotes({ notebookId }: UnlinkedNotesProps) {
 
   const handleFileClick = (relativePath: string) => {
     sendRequest({
-      method: 'openFile',
+      method: onyvoreRpcMethods.OPEN_FILE,
       params: { notebookId, relativePath },
     });
   };

@@ -62,7 +62,7 @@ export const messageBusMiddleware: Middleware = (storeApi) => {
       );
     });
 
-    messageBus.onNotification('activeNotebook.changed', (params: any) => {
+    messageBus.onNotification(onyvoreRpcMethods.ACTIVE_NOTEBOOK_CHANGED, (params: any) => {
       storeApi.dispatch(
         activeNotebookActions.setActiveNotebook({
           notebookId: params.notebookId,
@@ -71,7 +71,7 @@ export const messageBusMiddleware: Middleware = (storeApi) => {
       );
     });
 
-    messageBus.onNotification('search.show', () => {
+    messageBus.onNotification(onyvoreRpcMethods.SEARCH_SHOW, () => {
       storeApi.dispatch(searchResultsActions.show());
     });
   }, 0);

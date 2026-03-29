@@ -150,7 +150,6 @@ export class FileWatcherService implements OnModuleDestroy {
     rootPath: string,
     state: WatcherState,
   ): Promise<void> {
-    const oldFilter = state.ignoreFilter;
     this.loadIgnoreFile(rootPath, state);
 
     // Determine which files changed status by comparing old and new filters

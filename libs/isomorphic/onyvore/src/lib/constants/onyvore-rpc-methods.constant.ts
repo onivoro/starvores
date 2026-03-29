@@ -16,4 +16,12 @@ export const onyvoreRpcMethods = {
   NOTEBOOK_RECONCILE_PROGRESS: 'notebook.reconcileProgress',
   NOTEBOOK_READY: 'notebook.ready',
   NOTEBOOK_INDEX_UPDATED: 'notebook.indexUpdated',
+  ACTIVE_NOTEBOOK_CHANGED: 'activeNotebook.changed',
+  SEARCH_SHOW: 'search.show',
+  // Webview requests
+  OPEN_FILE: 'openFile',
+  PICK_DIRECTORY: 'pickDirectory',
+  GET_ACTIVE_NOTEBOOK: 'getActiveNotebook',
+  GET_CONFIGURATION: 'getConfiguration',
+  GET_WORKSPACE_FOLDERS: 'getWorkspaceFolders',
 } as const;

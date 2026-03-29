@@ -31743,7 +31743,7 @@ let OnyvoreCommandHandlerService = class OnyvoreCommandHandlerService {
             return;
         }
         // Signal the webview to show the search overlay
-        this.messageBus.sendNotification('search.show', { notebookId });
+        this.messageBus.sendNotification(isomorphic_onyvore_1.onyvoreRpcMethods.SEARCH_SHOW, { notebookId });
     }
     async rebuildNotebook() {
         const notebookId = this.activeNotebook.getActiveNotebookId();
@@ -31853,6 +31853,14 @@ exports.onyvoreRpcMethods = {
     NOTEBOOK_RECONCILE_PROGRESS: 'notebook.reconcileProgress',
     NOTEBOOK_READY: 'notebook.ready',
     NOTEBOOK_INDEX_UPDATED: 'notebook.indexUpdated',
+    ACTIVE_NOTEBOOK_CHANGED: 'activeNotebook.changed',
+    SEARCH_SHOW: 'search.show',
+    // Webview requests
+    OPEN_FILE: 'openFile',
+    PICK_DIRECTORY: 'pickDirectory',
+    GET_ACTIVE_NOTEBOOK: 'getActiveNotebook',
+    GET_CONFIGURATION: 'getConfiguration',
+    GET_WORKSPACE_FOLDERS: 'getWorkspaceFolders',
 };
 
 
@@ -32135,7 +32143,6 @@ let FileWatcherService = class FileWatcherService {
         }
     }
     async onIgnoreChanged(notebookId, rootPath, state) {
-        const oldFilter = state.ignoreFilter;
         this.loadIgnoreFile(rootPath, state);
         // Determine which files changed status by comparing old and new filters
         // For simplicity, send ignoreChanged to the server which does a full re-evaluation
@@ -33048,7 +33055,7 @@ let ActiveNotebookService = class ActiveNotebookService {
         }
     }
     notifyWebview() {
-        this.messageBus.sendNotification('activeNotebook.changed', {
+        this.messageBus.sendNotification(isomorphic_onyvore_1.onyvoreRpcMethods.ACTIVE_NOTEBOOK_CHANGED, {
             notebookId: this.activeNotebookId,
             activeNotePath: this.activeNotePath,
         });
@@ -33076,6 +33083,7 @@ exports.OnyvoreWebviewHandlerService = void 0;
 const tslib_1 = __webpack_require__(5);
 const common_1 = __webpack_require__(4);
 const server_vscode_1 = __webpack_require__(2);
+const isomorphic_onyvore_1 = __webpack_require__(685);
 const active_notebook_service_1 = __webpack_require__(692);
 const notebook_discovery_service_1 = __webpack_require__(689);
 const path = tslib_1.__importStar(__webpack_require__(373));
@@ -33128,31 +33136,31 @@ let OnyvoreWebviewHandlerService = class OnyvoreWebviewHandlerService {
 };
 exports.OnyvoreWebviewHandlerService = OnyvoreWebviewHandlerService;
 tslib_1.__decorate([
-    (0, server_vscode_1.WebviewHandler)('openFile'),
+    (0, server_vscode_1.WebviewHandler)(isomorphic_onyvore_1.onyvoreRpcMethods.OPEN_FILE),
     tslib_1.__metadata("design:type", Function),
     tslib_1.__metadata("design:paramtypes", [Object]),
     tslib_1.__metadata("design:returntype", typeof (_e = typeof Promise !== "undefined" && Promise) === "function" ? _e : Object)
 ], OnyvoreWebviewHandlerService.prototype, "openFile", null);
 tslib_1.__decorate([
-    (0, server_vscode_1.WebviewHandler)('pickDirectory'),
+    (0, server_vscode_1.WebviewHandler)(isomorphic_onyvore_1.onyvoreRpcMethods.PICK_DIRECTORY),
     tslib_1.__metadata("design:type", Function),
     tslib_1.__metadata("design:paramtypes", []),
     tslib_1.__metadata("design:returntype", typeof (_f = typeof Promise !== "undefined" && Promise) === "function" ? _f : Object)
 ], OnyvoreWebviewHandlerService.prototype, "pickDirectory", null);
 tslib_1.__decorate([
-    (0, server_vscode_1.WebviewHandler)('getActiveNotebook'),
+    (0, server_vscode_1.WebviewHandler)(isomorphic_onyvore_1.onyvoreRpcMethods.GET_ACTIVE_NOTEBOOK),
     tslib_1.__metadata("design:type", Function),
     tslib_1.__metadata("design:paramtypes", []),
     tslib_1.__metadata("design:returntype", Object)
 ], OnyvoreWebviewHandlerService.prototype, "getActiveNotebook", null);
 tslib_1.__decorate([
-    (0, server_vscode_1.WebviewHandler)('getConfiguration'),
+    (0, server_vscode_1.WebviewHandler)(isomorphic_onyvore_1.onyvoreRpcMethods.GET_CONFIGURATION),
     tslib_1.__metadata("design:type", Function),
     tslib_1.__metadata("design:paramtypes", [Object]),
     tslib_1.__metadata("design:returntype", Object)
 ], OnyvoreWebviewHandlerService.prototype, "getConfiguration", null);
 tslib_1.__decorate([
-    (0, server_vscode_1.WebviewHandler)('getWorkspaceFolders'),
+    (0, server_vscode_1.WebviewHandler)(isomorphic_onyvore_1.onyvoreRpcMethods.GET_WORKSPACE_FOLDERS),
     tslib_1.__metadata("design:type", Function),
     tslib_1.__metadata("design:paramtypes", []),
     tslib_1.__metadata("design:returntype", Object)

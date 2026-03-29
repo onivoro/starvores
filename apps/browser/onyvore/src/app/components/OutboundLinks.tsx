@@ -8,7 +8,7 @@ import {
   Chip,
   Box,
 } from '@mui/material';
-import type { LinkEntry } from '@onivoro/isomorphic-onyvore';
+import { onyvoreRpcMethods, type LinkEntry } from '@onivoro/isomorphic-onyvore';
 import { useRpc } from '../hooks/use-rpc-request.hook';
 
 interface OutboundLinksProps {
@@ -21,7 +21,7 @@ export function OutboundLinks({ links, notebookId }: OutboundLinksProps) {
 
   const handleClick = (relativePath: string) => {
     sendRequest({
-      method: 'openFile',
+      method: onyvoreRpcMethods.OPEN_FILE,
       params: { notebookId, relativePath },
     });
   };

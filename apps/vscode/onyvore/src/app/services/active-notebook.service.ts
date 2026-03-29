@@ -120,7 +120,7 @@ export class ActiveNotebookService implements OnModuleInit, OnModuleDestroy {
   }
 
   private notifyWebview(): void {
-    this.messageBus.sendNotification('activeNotebook.changed', {
+    this.messageBus.sendNotification(onyvoreRpcMethods.ACTIVE_NOTEBOOK_CHANGED, {
       notebookId: this.activeNotebookId,
       activeNotePath: this.activeNotePath,
     });

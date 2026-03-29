@@ -5,6 +5,7 @@ import {
   VSCODE_API,
   VscodeApi,
 } from '@onivoro/server-vscode';
+import { onyvoreRpcMethods } from '@onivoro/isomorphic-onyvore';
 import { ActiveNotebookService } from './active-notebook.service';
 import { NotebookDiscoveryService } from './notebook-discovery.service';
 import * as path from 'path';
@@ -18,7 +19,7 @@ export class OnyvoreWebviewHandlerService {
     private readonly notebookDiscovery: NotebookDiscoveryService,
   ) {}
 
-  @WebviewHandler('openFile')
+  @WebviewHandler(onyvoreRpcMethods.OPEN_FILE)
   async openFile(params: {
     notebookId: string;
     relativePath: string;
@@ -33,7 +34,7 @@ export class OnyvoreWebviewHandlerService {
     return { success: true };
   }
 
-  @WebviewHandler('pickDirectory')
+  @WebviewHandler(onyvoreRpcMethods.PICK_DIRECTORY)
   async pickDirectory(): Promise<{ path: string | null }> {
     const uris = await this.vscode.window.showOpenDialog({
       canSelectFolders: true,
@@ -46,7 +47,7 @@ export class OnyvoreWebviewHandlerService {
     return { path: uris[0].fsPath };
   }
 
-  @WebviewHandler('getActiveNotebook')
+  @WebviewHandler(onyvoreRpcMethods.GET_ACTIVE_NOTEBOOK)
   getActiveNotebook(): {
     notebookId: string | null;
     activeNotePath: string | null;
@@ -57,7 +58,7 @@ export class OnyvoreWebviewHandlerService {
     };
   }
 
-  @WebviewHandler('getConfiguration')
+  @WebviewHandler(onyvoreRpcMethods.GET_CONFIGURATION)
   getConfiguration(params: {
     section: string;
     key: string;
@@ -66,7 +67,7 @@ export class OnyvoreWebviewHandlerService {
     return { value: config.get(params.key) };
   }
 
-  @WebviewHandler('getWorkspaceFolders')
+  @WebviewHandler(onyvoreRpcMethods.GET_WORKSPACE_FOLDERS)
   getWorkspaceFolders(): { folders: string[] } {
     const folders = this.workspace.workspaceFolders;
     return { folders: folders?.map((f: any) => f.uri.fsPath) ?? [] };
