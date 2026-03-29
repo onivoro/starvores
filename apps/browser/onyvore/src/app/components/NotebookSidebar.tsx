@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Box, Typography, Divider } from '@mui/material';
 import { useRpc, useRpcResponse } from '../hooks/use-rpc-request.hook';
 import { onyvoreRpcMethods } from '@onivoro/isomorphic-onyvore';
 import type { RootState } from '../state/types/root-state.type';
@@ -8,7 +7,11 @@ import { notebooksActions } from '../state/slices/notebooks.slice';
 import { NotebookTree } from './NotebookTree';
 import { UnlinkedNotes } from './UnlinkedNotes';
 
-export function NotebookSidebar() {
+interface NotebookSidebarProps {
+  notebookId: string | null;
+}
+
+export function NotebookSidebar({ notebookId }: NotebookSidebarProps) {
   const dispatch = useDispatch();
   const { sendRequest } = useRpc();
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -23,7 +26,6 @@ export function NotebookSidebar() {
     setRequestId(id);
   }, []);
 
-  // Re-fetch when loading flag is set (triggered by notifications)
   useEffect(() => {
     if (loading) {
       const id = sendRequest({
@@ -33,7 +35,6 @@ export function NotebookSidebar() {
     }
   }, [loading]);
 
-  // When response arrives, push data into the notebooks slice
   useEffect(() => {
     if (response?.result) {
       const data = response.result as { notebooks: any[] };
@@ -43,48 +44,35 @@ export function NotebookSidebar() {
 
   if (notebooks.length === 0) {
     return (
-      <Box
-        sx={{
-          p: 2,
-          textAlign: 'center',
-          color: 'var(--vscode-foreground, inherit)',
-        }}
-      >
-        <Typography
-          variant="body2"
-          sx={{
-            mb: 1,
-            color: 'var(--vscode-foreground, inherit)',
-            opacity: 0.9,
-          }}
-        >
-          No notebooks found
-        </Typography>
-        <Typography
-          variant="caption"
-          component="div"
-          sx={{
-            color: 'var(--vscode-descriptionForeground, inherit)',
-            lineHeight: 1.6,
-          }}
-        >
-          Open a folder containing Markdown files, then run{' '}
-          <strong>Onyvore: Initialize Notebook</strong> from the Command Palette
-          (Cmd+Shift+P).
-        </Typography>
-      </Box>
+      <div className="ony-empty">
+        <div className="ony-empty__title">No notebooks found</div>
+        <div className="ony-empty__description">
+          Click the <strong>+</strong> button above to initialize a notebook
+          from a folder containing Markdown files.
+        </div>
+      </div>
+    );
+  }
+
+  const notebook = notebookId
+    ? notebooks.find((n) => n.id === notebookId)
+    : notebooks[0];
+
+  if (!notebook) {
+    return (
+      <div className="ony-empty">
+        <div className="ony-empty__title">Notebook not found</div>
+        <div className="ony-empty__description">
+          Select a notebook from the dropdown above.
+        </div>
+      </div>
     );
   }
 
   return (
-    <Box sx={{ overflow: 'auto', height: '100%' }}>
-      {notebooks.map((notebook, index) => (
-        <Box key={notebook.id}>
-          {index > 0 && <Divider />}
-          <NotebookTree notebook={notebook} />
-          <UnlinkedNotes notebookId={notebook.id} />
-        </Box>
-      ))}
-    </Box>
+    <>
+      <NotebookTree notebook={notebook} />
+      <UnlinkedNotes notebookId={notebook.id} />
+    </>
   );
 }

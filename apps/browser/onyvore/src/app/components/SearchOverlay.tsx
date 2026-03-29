@@ -1,21 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import {
-  Box,
-  TextField,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
-  Paper,
-  Typography,
-  InputAdornment,
-} from '@mui/material';
-import SearchIcon from '@mui/icons-material/Search';
 import { useRpc, useRpcResponse } from '../hooks/use-rpc-request.hook';
 import { onyvoreRpcMethods } from '@onivoro/isomorphic-onyvore';
 import { searchResultsActions } from '../state/slices/search-results.slice';
 import type { RootState } from '../state/types/root-state.type';
+import { SearchIcon } from './Icons';
 
 export function SearchOverlay() {
   const dispatch = useDispatch();
@@ -85,64 +74,47 @@ export function SearchOverlay() {
   if (!visible) return null;
 
   return (
-    <Paper
-      elevation={4}
-      sx={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 1000,
-        maxHeight: '80vh',
-        overflow: 'auto',
-      }}
-    >
-      <Box sx={{ p: 1 }}>
-        <TextField
-          inputRef={inputRef}
-          fullWidth
-          size="small"
-          placeholder={
-            notebookId ? 'Search notes...' : 'No active notebook'
-          }
+    <div className="ony-search">
+      <div className="ony-search__field">
+        <span className="ony-search__icon">
+          <SearchIcon />
+        </span>
+        <input
+          ref={inputRef}
+          className="ony-search__input"
+          type="text"
+          placeholder={notebookId ? 'Search notes...' : 'No active notebook'}
           value={query}
           onChange={(e) => handleSearch(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={!notebookId}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" />
-              </InputAdornment>
-            ),
-          }}
         />
-      </Box>
+      </div>
       {results.length > 0 && (
-        <List dense disablePadding>
+        <ul className="ony-search__results">
           {results.map((result) => (
-            <ListItem key={result.relativePath} disablePadding>
-              <ListItemButton
-                onClick={() => handleResultClick(result.relativePath)}
-              >
-                <ListItemText
-                  primary={result.title}
-                  secondary={result.relativePath}
-                  primaryTypographyProps={{ variant: 'body2' }}
-                  secondaryTypographyProps={{ variant: 'caption' }}
-                />
-              </ListItemButton>
-            </ListItem>
+            <li
+              key={result.relativePath}
+              className="ony-search__result"
+              tabIndex={0}
+              role="button"
+              onClick={() => handleResultClick(result.relativePath)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter')
+                  handleResultClick(result.relativePath);
+              }}
+            >
+              <span className="ony-search__result-title">{result.title}</span>
+              <span className="ony-search__result-path">
+                {result.relativePath}
+              </span>
+            </li>
           ))}
-        </List>
+        </ul>
       )}
       {query.length > 0 && results.length === 0 && (
-        <Box sx={{ p: 1, textAlign: 'center' }}>
-          <Typography variant="caption" color="text.secondary">
-            No results found
-          </Typography>
-        </Box>
+        <div className="ony-search__empty">No results found</div>
       )}
-    </Paper>
+    </div>
   );
 }

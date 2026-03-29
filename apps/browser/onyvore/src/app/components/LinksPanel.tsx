@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { Box, Typography, Divider } from '@mui/material';
 import { useRpc, useRpcResponse } from '../hooks/use-rpc-request.hook';
 import { onyvoreRpcMethods, type LinksForNote } from '@onivoro/isomorphic-onyvore';
 import type { RootState } from '../state/types/root-state.type';
 import { OutboundLinks } from './OutboundLinks';
 import { InboundLinks } from './InboundLinks';
+import { CollapsibleSection } from './CollapsibleSection';
 
 export function LinksPanel() {
   const { sendRequest } = useRpc();
@@ -44,43 +44,25 @@ export function LinksPanel() {
 
   if (!notebookId || !activeNotePath) {
     return (
-      <Box sx={{ p: 2, textAlign: 'center' }}>
-        <Typography variant="body2" color="text.secondary">
-          Open a note to see its links.
-        </Typography>
-      </Box>
+      <div className="ony-empty__hint">Open a note to see its links.</div>
     );
   }
 
   if (!links) {
     return (
-      <Box sx={{ p: 2, textAlign: 'center' }}>
-        <Typography variant="body2" color="text.secondary">
-          Loading links...
-        </Typography>
-      </Box>
+      <div className="ony-empty__hint">Loading links...</div>
     );
   }
 
   return (
-    <Box sx={{ overflow: 'auto' }}>
-      <Typography
-        variant="subtitle2"
-        sx={{ px: 1, py: 0.5, fontWeight: 'bold', opacity: 0.8 }}
-      >
-        Outbound Links ({links.outbound.length})
-      </Typography>
-      <OutboundLinks links={links.outbound} notebookId={notebookId} />
+    <>
+      <CollapsibleSection title="Outbound Links" count={links.outbound.length}>
+        <OutboundLinks links={links.outbound} notebookId={notebookId} />
+      </CollapsibleSection>
 
-      <Divider sx={{ my: 0.5 }} />
-
-      <Typography
-        variant="subtitle2"
-        sx={{ px: 1, py: 0.5, fontWeight: 'bold', opacity: 0.8 }}
-      >
-        Backlinks ({links.inbound.length})
-      </Typography>
-      <InboundLinks links={links.inbound} notebookId={notebookId} />
-    </Box>
+      <CollapsibleSection title="Backlinks" count={links.inbound.length}>
+        <InboundLinks links={links.inbound} notebookId={notebookId} />
+      </CollapsibleSection>
+    </>
   );
 }

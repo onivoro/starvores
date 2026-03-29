@@ -1,5 +1,4 @@
-import React, { Component, type ReactNode } from 'react';
-import { Box, Typography } from '@mui/material';
+import { Component, type ReactNode } from 'react';
 
 interface Props {
   children: ReactNode;
@@ -23,18 +22,12 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <Box sx={{ p: 2 }}>
-          <Typography variant="body2" color="error">
-            Onyvore encountered an error:
-          </Typography>
-          <Typography
-            variant="caption"
-            component="pre"
-            sx={{ mt: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-word', opacity: 0.8 }}
-          >
+        <div className="ony-error">
+          <div className="ony-error__title">Onyvore encountered an error:</div>
+          <pre className="ony-error__detail">
             {this.state.error.message}
-          </Typography>
-        </Box>
+          </pre>
+        </div>
       );
     }
     return this.props.children;

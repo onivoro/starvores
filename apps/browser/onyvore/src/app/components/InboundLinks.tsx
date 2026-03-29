@@ -1,15 +1,7 @@
-import React from 'react';
-import {
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
-  Typography,
-  Chip,
-  Box,
-} from '@mui/material';
 import { onyvoreRpcMethods, type LinkEntry } from '@onivoro/isomorphic-onyvore';
 import { useRpc } from '../hooks/use-rpc-request.hook';
+import { TreeItem } from './TreeItem';
+import { FileIcon } from './Icons';
 
 interface InboundLinksProps {
   links: LinkEntry[];
@@ -27,45 +19,21 @@ export function InboundLinks({ links, notebookId }: InboundLinksProps) {
   };
 
   if (links.length === 0) {
-    return (
-      <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
-        No backlinks
-      </Typography>
-    );
+    return <div className="ony-empty__hint">No backlinks</div>;
   }
 
   return (
-    <List dense disablePadding>
+    <ul className="ony-tree">
       {links.map((link) => (
-        <ListItem key={link.notePath} disablePadding>
-          <ListItemButton
-            onClick={() => handleClick(link.notePath)}
-            sx={{ py: 0.25 }}
-          >
-            <ListItemText
-              primary={
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.5,
-                  }}
-                >
-                  <Typography variant="body2" noWrap sx={{ flex: 1 }}>
-                    {link.noteTitle}
-                  </Typography>
-                  <Chip
-                    label={`${link.noun} (${link.count})`}
-                    size="small"
-                    variant="outlined"
-                    sx={{ fontSize: '0.65rem', height: 18 }}
-                  />
-                </Box>
-              }
-            />
-          </ListItemButton>
-        </ListItem>
+        <TreeItem
+          key={link.notePath}
+          label={link.noteTitle}
+          sublabel={link.notePath}
+          icon={<FileIcon />}
+          badge={link.count}
+          onClick={() => handleClick(link.notePath)}
+        />
       ))}
-    </List>
+    </ul>
   );
 }

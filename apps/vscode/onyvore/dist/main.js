@@ -31674,6 +31674,12 @@ class OnyvoreWebviewProvider extends server_vscode_1.BaseWebviewProvider {
     getInjectedScripts(nonce) {
         return (0, server_vscode_1.generateVscodeThemeBridgeInjection)(nonce);
     }
+    getHtmlForWebview(webview) {
+        let html = super.getHtmlForWebview(webview);
+        // Allow base64-inlined codicon font via data: URI
+        html = html.replace('font-src ', 'font-src data: ');
+        return html;
+    }
 }
 exports.OnyvoreWebviewProvider = OnyvoreWebviewProvider;
 

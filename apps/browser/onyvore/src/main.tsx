@@ -1,15 +1,14 @@
 import { StrictMode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import * as ReactDOM from 'react-dom/client';
-import App from './app/app';
-import { ThemeProvider, createTheme } from '@mui/material';
 import { Provider } from 'react-redux';
 import { store } from './app/state/store';
 import { ErrorBoundary } from './app/components/ErrorBoundary';
+import App from './app/app';
+import '@vscode/codicons/dist/codicon.css';
+import './app/onyvore.css';
 
 console.log('[Onyvore] Webview script loaded');
-
-const theme = createTheme();
 
 try {
   const rootEl = document.getElementById('root');
@@ -22,11 +21,9 @@ try {
       <StrictMode>
         <ErrorBoundary>
           <Provider store={store}>
-            <ThemeProvider theme={theme}>
-              <MemoryRouter>
-                <App />
-              </MemoryRouter>
-            </ThemeProvider>
+            <MemoryRouter>
+              <App />
+            </MemoryRouter>
           </Provider>
         </ErrorBoundary>
       </StrictMode>,

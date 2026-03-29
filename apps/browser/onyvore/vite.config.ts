@@ -14,5 +14,6 @@ export default defineConfig(() => ({
     emptyOutDir: true,
     reportCompressedSize: true,
     commonjsOptions: { transformMixedEsModules: true },
+    assetsInlineLimit: 200000,
   },
 }));

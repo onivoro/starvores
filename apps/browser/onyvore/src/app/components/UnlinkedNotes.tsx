@@ -1,17 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import {
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Typography,
-  Divider,
-  Box,
-} from '@mui/material';
-import LinkOffIcon from '@mui/icons-material/LinkOff';
+import { useEffect, useState } from 'react';
 import { useRpc, useRpcResponse } from '../hooks/use-rpc-request.hook';
 import { onyvoreRpcMethods } from '@onivoro/isomorphic-onyvore';
+import { CollapsibleSection } from './CollapsibleSection';
+import { TreeItem } from './TreeItem';
+import { LinkOffIcon } from './Icons';
 
 interface UnlinkedNotesProps {
   notebookId: string;
@@ -47,35 +39,26 @@ export function UnlinkedNotes({ notebookId }: UnlinkedNotesProps) {
   if (orphans.length === 0) return null;
 
   return (
-    <Box>
-      <Divider />
-      <Typography
-        variant="caption"
-        sx={{ px: 1, py: 0.5, display: 'block', opacity: 0.6 }}
-      >
-        Unlinked Notes ({orphans.length})
-      </Typography>
-      <List dense disablePadding>
+    <CollapsibleSection
+      title="Unlinked Notes"
+      count={orphans.length}
+      defaultOpen={false}
+    >
+      <ul className="ony-tree">
         {orphans.map((relPath) => {
-          const basename = relPath.replace(/\.md$/, '').split('/').pop() ?? relPath;
+          const basename =
+            relPath.replace(/\.md$/, '').split('/').pop() ?? relPath;
           return (
-            <ListItem key={relPath} disablePadding>
-              <ListItemButton
-                onClick={() => handleFileClick(relPath)}
-                sx={{ py: 0.25, pl: 2 }}
-              >
-                <ListItemIcon sx={{ minWidth: 28 }}>
-                  <LinkOffIcon fontSize="small" sx={{ opacity: 0.5 }} />
-                </ListItemIcon>
-                <ListItemText
-                  primary={basename}
-                  primaryTypographyProps={{ variant: 'body2', noWrap: true }}
-                />
-              </ListItemButton>
-            </ListItem>
+            <TreeItem
+              key={relPath}
+              label={basename}
+              sublabel={relPath.includes('/') ? relPath : undefined}
+              icon={<LinkOffIcon />}
+              onClick={() => handleFileClick(relPath)}
+            />
           );
         })}
-      </List>
-    </Box>
+      </ul>
+    </CollapsibleSection>
   );
 }

@@ -4,7 +4,7 @@
     {
       "label": "onyvore:build",
       "type": "shell",
-      "command": "npx nx build app-vscode-onyvore",
+      "command": "npx nx build app-vscode-onyvore --skip-nx-cache",
       "group": "build",
       "problemMatcher": ["$tsc"]
     }
