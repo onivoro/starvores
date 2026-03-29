@@ -8,11 +8,13 @@ interface NotebookWithFiles extends NotebookInfo {
 interface NotebooksState {
   notebooks: NotebookWithFiles[];
   loading: boolean;
+  indexVersion: number;
 }
 
 const initialState: NotebooksState = {
   notebooks: [],
   loading: false,
+  indexVersion: 0,
 };
 
 export const notebooksSlice = createSlice({
@@ -22,6 +24,7 @@ export const notebooksSlice = createSlice({
     setNotebooks(state, action: PayloadAction<NotebookWithFiles[]>) {
       state.notebooks = action.payload;
       state.loading = false;
+      state.indexVersion += 1;
     },
     setLoading(state, action: PayloadAction<boolean>) {
       state.loading = action.payload;

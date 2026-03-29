@@ -30575,7 +30575,7 @@ let NlpService = class NlpService {
         const rawPhrases = doc.nouns().out('array');
         const phrases = new Map();
         for (const raw of rawPhrases) {
-            const normalized = raw.toLowerCase().trim();
+            const normalized = raw.toLowerCase().trim().replace(/[^\w\s-]/g, '');
             if (normalized.length <= 1)
                 continue;
             const words = normalized.split(/\s+/);

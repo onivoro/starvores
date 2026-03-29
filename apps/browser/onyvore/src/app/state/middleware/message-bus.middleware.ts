@@ -5,7 +5,6 @@ import { jsonRpcRequestEntitySlice } from '../slices/jsonrpc-request-entity.slic
 import { jsonRpcResponseEntitySlice } from '../slices/jsonrpc-response-entity.slice';
 import { onyvoreRpcMethods } from '@onivoro/isomorphic-onyvore';
 import { notebooksActions } from '../slices/notebooks.slice';
-import { linksActions } from '../slices/links.slice';
 import { activeNotebookActions } from '../slices/active-notebook.slice';
 import { searchResultsActions } from '../slices/search-results.slice';
 
@@ -28,42 +27,52 @@ export const messageBusMiddleware: Middleware = (storeApi) => {
     const messageBus = getMessageBus();
     if (!messageBus) return;
 
-    messageBus.onNotification((method: string, params: any) => {
-      switch (method) {
-        case onyvoreRpcMethods.NOTEBOOK_INDEX_UPDATED:
-        case onyvoreRpcMethods.NOTEBOOK_READY:
-          // Fetch fresh notebook list from the server
-          messageBus
-            .sendRequest(onyvoreRpcMethods.NOTEBOOK_GET_NOTEBOOKS, {})
-            .then((result) => {
-              const data = result as { notebooks: any[] };
-              storeApi.dispatch(notebooksActions.setNotebooks(data.notebooks ?? []));
-            })
-            .catch((err: Error) => {
-              console.error('[MessageBus] Failed to fetch notebooks:', err);
-            });
-          break;
-        case onyvoreRpcMethods.NOTEBOOK_INIT_PROGRESS:
-        case onyvoreRpcMethods.NOTEBOOK_RECONCILE_PROGRESS:
-          storeApi.dispatch(
-            notebooksActions.updateNotebookStatus({
-              notebookId: params.notebookId,
-              status: method === onyvoreRpcMethods.NOTEBOOK_INIT_PROGRESS
-                ? 'initializing'
-                : 'reconciling',
-              progress: params.progress,
-            }),
-          );
-          break;
-        case 'activeNotebook.changed':
-          storeApi.dispatch(
-            activeNotebookActions.setActiveNotebook({
-              notebookId: params.notebookId,
-              activeNotePath: params.activeNotePath,
-            }),
-          );
-          break;
-      }
+    const fetchNotebooks = () => {
+      messageBus
+        .sendRequest(onyvoreRpcMethods.NOTEBOOK_GET_NOTEBOOKS, {})
+        .then((result) => {
+          const data = result as { notebooks: any[] };
+          storeApi.dispatch(notebooksActions.setNotebooks(data.notebooks ?? []));
+        })
+        .catch((err: Error) => {
+          console.error('[MessageBus] Failed to fetch notebooks:', err);
+        });
+    };
+
+    messageBus.onNotification(onyvoreRpcMethods.NOTEBOOK_READY, fetchNotebooks);
+    messageBus.onNotification(onyvoreRpcMethods.NOTEBOOK_INDEX_UPDATED, fetchNotebooks);
+
+    messageBus.onNotification(onyvoreRpcMethods.NOTEBOOK_INIT_PROGRESS, (params: any) => {
+      storeApi.dispatch(
+        notebooksActions.updateNotebookStatus({
+          notebookId: params.notebookId,
+          status: 'initializing',
+          progress: params.progress,
+        }),
+      );
+    });
+
+    messageBus.onNotification(onyvoreRpcMethods.NOTEBOOK_RECONCILE_PROGRESS, (params: any) => {
+      storeApi.dispatch(
+        notebooksActions.updateNotebookStatus({
+          notebookId: params.notebookId,
+          status: 'reconciling',
+          progress: params.progress,
+        }),
+      );
+    });
+
+    messageBus.onNotification('activeNotebook.changed', (params: any) => {
+      storeApi.dispatch(
+        activeNotebookActions.setActiveNotebook({
+          notebookId: params.notebookId,
+          activeNotePath: params.activeNotePath,
+        }),
+      );
+    });
+
+    messageBus.onNotification('search.show', () => {
+      storeApi.dispatch(searchResultsActions.show());
     });
   }, 0);
 

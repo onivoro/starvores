@@ -1,4 +1,4 @@
-import { Injectable, Inject, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Inject, OnModuleDestroy, forwardRef } from '@nestjs/common';
 import { VSCODE_API, VscodeApi } from '@onivoro/server-vscode';
 import { MESSAGE_BUS, MessageBus } from '@onivoro/isomorphic-jsonrpc';
 import { onyvoreRpcMethods, type FileEvent } from '@onivoro/isomorphic-onyvore';
@@ -24,6 +24,7 @@ export class FileWatcherService implements OnModuleDestroy {
   constructor(
     @Inject(VSCODE_API) private readonly vscode: VscodeApi,
     @Inject(MESSAGE_BUS) private readonly messageBus: MessageBus,
+    @Inject(forwardRef(() => NotebookDiscoveryService))
     private readonly notebookDiscovery: NotebookDiscoveryService,
   ) {}
 

@@ -1,7 +1,8 @@
-import { Injectable, Inject, OnModuleInit } from '@nestjs/common';
+import { Injectable, Inject, OnModuleInit, forwardRef } from '@nestjs/common';
 import { VSCODE_API, VscodeApi } from '@onivoro/server-vscode';
 import { MESSAGE_BUS, MessageBus } from '@onivoro/isomorphic-jsonrpc';
 import { onyvoreRpcMethods } from '@onivoro/isomorphic-onyvore';
+import { FileWatcherService } from './file-watcher.service';
 import * as path from 'path';
 
 export interface DiscoveredNotebook {
@@ -18,6 +19,8 @@ export class NotebookDiscoveryService implements OnModuleInit {
   constructor(
     @Inject(VSCODE_API) private readonly vscode: VscodeApi,
     @Inject(MESSAGE_BUS) private readonly messageBus: MessageBus,
+    @Inject(forwardRef(() => FileWatcherService))
+    private readonly fileWatcher: FileWatcherService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -32,14 +35,15 @@ export class NotebookDiscoveryService implements OnModuleInit {
 
     for (const folder of workspaceFolders) {
       const rootUri = folder.uri;
-      // Search for .onyvore directories recursively
-      const onyvoreUris = await this.vscode.workspace.findFiles(
-        new this.vscode.RelativePattern(rootUri, '**/.onyvore'),
+      // Search for .onyvore/metadata.json files (findFiles only matches files, not directories)
+      const metadataUris = await this.vscode.workspace.findFiles(
+        new this.vscode.RelativePattern(rootUri, '**/.onyvore/metadata.json'),
         '**/node_modules/**',
       );
 
-      for (const onyvoreUri of onyvoreUris) {
-        const notebookRoot = path.dirname(onyvoreUri.fsPath);
+      for (const metadataUri of metadataUris) {
+        // metadata.json → .onyvore/ → notebook root
+        const notebookRoot = path.dirname(path.dirname(metadataUri.fsPath));
         const notebookId = notebookRoot; // Use absolute path as ID
 
         if (this.discoveredNotebooks.has(notebookId)) continue;
@@ -69,6 +73,9 @@ export class NotebookDiscoveryService implements OnModuleInit {
           onyvoreRpcMethods.NOTEBOOK_RECONCILE,
           { notebookId: notebook.id },
         );
+
+        // Set up file watcher so edits trigger index updates
+        this.fileWatcher.registerNotebook(notebook.id, notebook.rootPath);
       }
     }
 
@@ -101,6 +108,9 @@ export class NotebookDiscoveryService implements OnModuleInit {
     await this.messageBus.sendRequest(onyvoreRpcMethods.NOTEBOOK_INITIALIZE, {
       notebookId: notebook.id,
     });
+
+    // Set up file watcher so edits trigger index updates
+    this.fileWatcher.registerNotebook(notebook.id, notebook.rootPath);
 
     return notebook;
   }

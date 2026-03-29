@@ -31620,8 +31620,8 @@ const onyvore_command_handler_service_1 = __webpack_require__(684);
 const onyvore_webview_handler_service_1 = __webpack_require__(693);
 const onyvore_server_notification_handler_service_1 = __webpack_require__(694);
 const notebook_discovery_service_1 = __webpack_require__(689);
-const active_notebook_service_1 = __webpack_require__(690);
-const file_watcher_service_1 = __webpack_require__(691);
+const active_notebook_service_1 = __webpack_require__(692);
+const file_watcher_service_1 = __webpack_require__(690);
 function bundlePath(...segments) {
     return path.join(__dirname, ...segments);
 }
@@ -31693,8 +31693,8 @@ const server_vscode_1 = __webpack_require__(2);
 const isomorphic_jsonrpc_1 = __webpack_require__(579);
 const isomorphic_onyvore_1 = __webpack_require__(685);
 const notebook_discovery_service_1 = __webpack_require__(689);
-const active_notebook_service_1 = __webpack_require__(690);
-const file_watcher_service_1 = __webpack_require__(691);
+const active_notebook_service_1 = __webpack_require__(692);
+const file_watcher_service_1 = __webpack_require__(690);
 let OnyvoreCommandHandlerService = class OnyvoreCommandHandlerService {
     vscode;
     messageBus;
@@ -31884,7 +31884,7 @@ exports.STOP_NOUNS = new Set([
 
 "use strict";
 
-var _a, _b;
+var _a, _b, _c;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.NotebookDiscoveryService = void 0;
 const tslib_1 = __webpack_require__(5);
@@ -31892,14 +31892,17 @@ const common_1 = __webpack_require__(4);
 const server_vscode_1 = __webpack_require__(2);
 const isomorphic_jsonrpc_1 = __webpack_require__(579);
 const isomorphic_onyvore_1 = __webpack_require__(685);
+const file_watcher_service_1 = __webpack_require__(690);
 const path = tslib_1.__importStar(__webpack_require__(373));
 let NotebookDiscoveryService = class NotebookDiscoveryService {
     vscode;
     messageBus;
+    fileWatcher;
     discoveredNotebooks = new Map();
-    constructor(vscode, messageBus) {
+    constructor(vscode, messageBus, fileWatcher) {
         this.vscode = vscode;
         this.messageBus = messageBus;
+        this.fileWatcher = fileWatcher;
     }
     async onModuleInit() {
         await this.discoverNotebooks();
@@ -31911,10 +31914,11 @@ let NotebookDiscoveryService = class NotebookDiscoveryService {
         const newlyDiscovered = [];
         for (const folder of workspaceFolders) {
             const rootUri = folder.uri;
-            // Search for .onyvore directories recursively
-            const onyvoreUris = await this.vscode.workspace.findFiles(new this.vscode.RelativePattern(rootUri, '**/.onyvore'), '**/node_modules/**');
-            for (const onyvoreUri of onyvoreUris) {
-                const notebookRoot = path.dirname(onyvoreUri.fsPath);
+            // Search for .onyvore/metadata.json files (findFiles only matches files, not directories)
+            const metadataUris = await this.vscode.workspace.findFiles(new this.vscode.RelativePattern(rootUri, '**/.onyvore/metadata.json'), '**/node_modules/**');
+            for (const metadataUri of metadataUris) {
+                // metadata.json → .onyvore/ → notebook root
+                const notebookRoot = path.dirname(path.dirname(metadataUri.fsPath));
                 const notebookId = notebookRoot; // Use absolute path as ID
                 if (this.discoveredNotebooks.has(notebookId))
                     continue;
@@ -31934,6 +31938,8 @@ let NotebookDiscoveryService = class NotebookDiscoveryService {
                 });
                 // Trigger reconciliation for existing notebooks
                 await this.messageBus.sendRequest(isomorphic_onyvore_1.onyvoreRpcMethods.NOTEBOOK_RECONCILE, { notebookId: notebook.id });
+                // Set up file watcher so edits trigger index updates
+                this.fileWatcher.registerNotebook(notebook.id, notebook.rootPath);
             }
         }
         return newlyDiscovered;
@@ -31959,6 +31965,8 @@ let NotebookDiscoveryService = class NotebookDiscoveryService {
         await this.messageBus.sendRequest(isomorphic_onyvore_1.onyvoreRpcMethods.NOTEBOOK_INITIALIZE, {
             notebookId: notebook.id,
         });
+        // Set up file watcher so edits trigger index updates
+        this.fileWatcher.registerNotebook(notebook.id, notebook.rootPath);
         return notebook;
     }
     getNotebook(notebookId) {
@@ -32002,126 +32010,13 @@ exports.NotebookDiscoveryService = NotebookDiscoveryService = tslib_1.__decorate
     (0, common_1.Injectable)(),
     tslib_1.__param(0, (0, common_1.Inject)(server_vscode_1.VSCODE_API)),
     tslib_1.__param(1, (0, common_1.Inject)(isomorphic_jsonrpc_1.MESSAGE_BUS)),
-    tslib_1.__metadata("design:paramtypes", [typeof (_a = typeof server_vscode_1.VscodeApi !== "undefined" && server_vscode_1.VscodeApi) === "function" ? _a : Object, typeof (_b = typeof isomorphic_jsonrpc_1.MessageBus !== "undefined" && isomorphic_jsonrpc_1.MessageBus) === "function" ? _b : Object])
+    tslib_1.__param(2, (0, common_1.Inject)((0, common_1.forwardRef)(() => file_watcher_service_1.FileWatcherService))),
+    tslib_1.__metadata("design:paramtypes", [typeof (_a = typeof server_vscode_1.VscodeApi !== "undefined" && server_vscode_1.VscodeApi) === "function" ? _a : Object, typeof (_b = typeof isomorphic_jsonrpc_1.MessageBus !== "undefined" && isomorphic_jsonrpc_1.MessageBus) === "function" ? _b : Object, typeof (_c = typeof file_watcher_service_1.FileWatcherService !== "undefined" && file_watcher_service_1.FileWatcherService) === "function" ? _c : Object])
 ], NotebookDiscoveryService);
 
 
 /***/ }),
 /* 690 */
-/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
-
-"use strict";
-
-var _a, _b, _c, _d;
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.ActiveNotebookService = void 0;
-const tslib_1 = __webpack_require__(5);
-const common_1 = __webpack_require__(4);
-const server_vscode_1 = __webpack_require__(2);
-const isomorphic_jsonrpc_1 = __webpack_require__(579);
-const notebook_discovery_service_1 = __webpack_require__(689);
-const path = tslib_1.__importStar(__webpack_require__(373));
-let ActiveNotebookService = class ActiveNotebookService {
-    vscode;
-    messageBus;
-    webviewProvider;
-    notebookDiscovery;
-    activeNotebookId = null;
-    activeNotePath = null;
-    statusBarItem = null;
-    disposable = null;
-    constructor(vscode, messageBus, webviewProvider, notebookDiscovery) {
-        this.vscode = vscode;
-        this.messageBus = messageBus;
-        this.webviewProvider = webviewProvider;
-        this.notebookDiscovery = notebookDiscovery;
-    }
-    onModuleInit() {
-        // Create status bar item
-        this.statusBarItem = this.vscode.window.createStatusBarItem(this.vscode.StatusBarAlignment.Right, 100);
-        this.statusBarItem.show();
-        this.updateStatusBar();
-        // Listen for active editor changes
-        this.disposable = this.vscode.window.onDidChangeActiveTextEditor((editor) => {
-            this.onEditorChanged(editor);
-        });
-        // Set initial state from current editor
-        const currentEditor = this.vscode.window.activeTextEditor;
-        if (currentEditor) {
-            this.onEditorChanged(currentEditor);
-        }
-    }
-    onModuleDestroy() {
-        this.statusBarItem?.dispose();
-        this.disposable?.dispose();
-    }
-    getActiveNotebookId() {
-        return this.activeNotebookId;
-    }
-    getActiveNotePath() {
-        return this.activeNotePath;
-    }
-    onEditorChanged(editor) {
-        if (!editor) {
-            this.setActive(null, null);
-            return;
-        }
-        const filePath = editor.document.uri.fsPath;
-        // Only track markdown files
-        if (!filePath.endsWith('.md')) {
-            this.setActive(null, null);
-            return;
-        }
-        const notebook = this.notebookDiscovery.findNotebookForFile(filePath);
-        if (!notebook) {
-            this.setActive(null, null);
-            return;
-        }
-        const relativePath = path.relative(notebook.rootPath, filePath);
-        this.setActive(notebook.id, relativePath);
-    }
-    setActive(notebookId, notePath) {
-        const changed = this.activeNotebookId !== notebookId ||
-            this.activeNotePath !== notePath;
-        this.activeNotebookId = notebookId;
-        this.activeNotePath = notePath;
-        if (changed) {
-            this.updateStatusBar();
-            this.notifyWebview();
-        }
-    }
-    updateStatusBar() {
-        if (!this.statusBarItem)
-            return;
-        if (this.activeNotebookId) {
-            const notebook = this.notebookDiscovery.getNotebook(this.activeNotebookId);
-            this.statusBarItem.text = `$(notebook) ${notebook?.name ?? 'Unknown'}`;
-            this.statusBarItem.tooltip = `Onyvore: ${notebook?.rootPath ?? ''}`;
-        }
-        else {
-            this.statusBarItem.text = '$(notebook) No Notebook';
-            this.statusBarItem.tooltip = 'Onyvore: No active notebook';
-        }
-    }
-    notifyWebview() {
-        this.messageBus.sendNotification('activeNotebook.changed', {
-            notebookId: this.activeNotebookId,
-            activeNotePath: this.activeNotePath,
-        });
-    }
-};
-exports.ActiveNotebookService = ActiveNotebookService;
-exports.ActiveNotebookService = ActiveNotebookService = tslib_1.__decorate([
-    (0, common_1.Injectable)(),
-    tslib_1.__param(0, (0, common_1.Inject)(server_vscode_1.VSCODE_API)),
-    tslib_1.__param(1, (0, common_1.Inject)(isomorphic_jsonrpc_1.MESSAGE_BUS)),
-    tslib_1.__param(2, (0, common_1.Inject)(server_vscode_1.WEBVIEW_PROVIDER)),
-    tslib_1.__metadata("design:paramtypes", [typeof (_a = typeof server_vscode_1.VscodeApi !== "undefined" && server_vscode_1.VscodeApi) === "function" ? _a : Object, typeof (_b = typeof isomorphic_jsonrpc_1.MessageBus !== "undefined" && isomorphic_jsonrpc_1.MessageBus) === "function" ? _b : Object, typeof (_c = typeof server_vscode_1.BaseWebviewProvider !== "undefined" && server_vscode_1.BaseWebviewProvider) === "function" ? _c : Object, typeof (_d = typeof notebook_discovery_service_1.NotebookDiscoveryService !== "undefined" && notebook_discovery_service_1.NotebookDiscoveryService) === "function" ? _d : Object])
-], ActiveNotebookService);
-
-
-/***/ }),
-/* 691 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -32137,7 +32032,7 @@ const isomorphic_onyvore_1 = __webpack_require__(685);
 const notebook_discovery_service_1 = __webpack_require__(689);
 const path = tslib_1.__importStar(__webpack_require__(373));
 const fs = tslib_1.__importStar(__webpack_require__(374));
-const ignore_1 = tslib_1.__importDefault(__webpack_require__(692));
+const ignore_1 = tslib_1.__importDefault(__webpack_require__(691));
 const DEBOUNCE_MS = 300;
 let FileWatcherService = class FileWatcherService {
     vscode;
@@ -32256,12 +32151,13 @@ exports.FileWatcherService = FileWatcherService = tslib_1.__decorate([
     (0, common_1.Injectable)(),
     tslib_1.__param(0, (0, common_1.Inject)(server_vscode_1.VSCODE_API)),
     tslib_1.__param(1, (0, common_1.Inject)(isomorphic_jsonrpc_1.MESSAGE_BUS)),
+    tslib_1.__param(2, (0, common_1.Inject)((0, common_1.forwardRef)(() => notebook_discovery_service_1.NotebookDiscoveryService))),
     tslib_1.__metadata("design:paramtypes", [typeof (_a = typeof server_vscode_1.VscodeApi !== "undefined" && server_vscode_1.VscodeApi) === "function" ? _a : Object, typeof (_b = typeof isomorphic_jsonrpc_1.MessageBus !== "undefined" && isomorphic_jsonrpc_1.MessageBus) === "function" ? _b : Object, typeof (_c = typeof notebook_discovery_service_1.NotebookDiscoveryService !== "undefined" && notebook_discovery_service_1.NotebookDiscoveryService) === "function" ? _c : Object])
 ], FileWatcherService);
 
 
 /***/ }),
-/* 692 */
+/* 691 */
 /***/ ((module) => {
 
 // A simple implementation of make-array
@@ -33051,6 +32947,124 @@ define(module.exports, Symbol.for('setupWindows'), setupWindows)
 
 
 /***/ }),
+/* 692 */
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+"use strict";
+
+var _a, _b, _c, _d;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ActiveNotebookService = void 0;
+const tslib_1 = __webpack_require__(5);
+const common_1 = __webpack_require__(4);
+const server_vscode_1 = __webpack_require__(2);
+const isomorphic_jsonrpc_1 = __webpack_require__(579);
+const isomorphic_onyvore_1 = __webpack_require__(685);
+const notebook_discovery_service_1 = __webpack_require__(689);
+const path = tslib_1.__importStar(__webpack_require__(373));
+let ActiveNotebookService = class ActiveNotebookService {
+    vscode;
+    messageBus;
+    webviewProvider;
+    notebookDiscovery;
+    activeNotebookId = null;
+    activeNotePath = null;
+    statusBarItem = null;
+    disposable = null;
+    constructor(vscode, messageBus, webviewProvider, notebookDiscovery) {
+        this.vscode = vscode;
+        this.messageBus = messageBus;
+        this.webviewProvider = webviewProvider;
+        this.notebookDiscovery = notebookDiscovery;
+    }
+    onModuleInit() {
+        // Create status bar item
+        this.statusBarItem = this.vscode.window.createStatusBarItem(this.vscode.StatusBarAlignment.Right, 100);
+        this.statusBarItem.show();
+        this.updateStatusBar();
+        // Listen for active editor changes
+        this.disposable = this.vscode.window.onDidChangeActiveTextEditor((editor) => {
+            this.onEditorChanged(editor);
+        });
+        // Set initial state from current editor
+        const currentEditor = this.vscode.window.activeTextEditor;
+        if (currentEditor) {
+            this.onEditorChanged(currentEditor);
+        }
+        // Recheck when notebooks become available (discovery/init may complete after this runs)
+        this.messageBus.onNotification(isomorphic_onyvore_1.onyvoreRpcMethods.NOTEBOOK_READY, () => this.recheckActiveEditor());
+    }
+    onModuleDestroy() {
+        this.statusBarItem?.dispose();
+        this.disposable?.dispose();
+    }
+    getActiveNotebookId() {
+        return this.activeNotebookId;
+    }
+    getActiveNotePath() {
+        return this.activeNotePath;
+    }
+    recheckActiveEditor() {
+        const editor = this.vscode.window.activeTextEditor;
+        this.onEditorChanged(editor ?? null);
+    }
+    onEditorChanged(editor) {
+        // When editor loses focus (command palette, terminal, etc.), keep the last known state
+        if (!editor)
+            return;
+        const filePath = editor.document.uri.fsPath;
+        // Only update when a markdown file is focused; ignore non-markdown files
+        if (!filePath.endsWith('.md'))
+            return;
+        const notebook = this.notebookDiscovery.findNotebookForFile(filePath);
+        if (!notebook) {
+            this.setActive(null, null);
+            return;
+        }
+        const relativePath = path.relative(notebook.rootPath, filePath);
+        this.setActive(notebook.id, relativePath);
+    }
+    setActive(notebookId, notePath) {
+        const changed = this.activeNotebookId !== notebookId ||
+            this.activeNotePath !== notePath;
+        this.activeNotebookId = notebookId;
+        this.activeNotePath = notePath;
+        if (changed) {
+            this.updateStatusBar();
+            this.notifyWebview();
+        }
+    }
+    updateStatusBar() {
+        if (!this.statusBarItem)
+            return;
+        if (this.activeNotebookId) {
+            const notebook = this.notebookDiscovery.getNotebook(this.activeNotebookId);
+            this.statusBarItem.text = `$(notebook) ${notebook?.name ?? 'Unknown'}`;
+            this.statusBarItem.tooltip = `Onyvore: ${notebook?.rootPath ?? ''}`;
+        }
+        else {
+            this.statusBarItem.text = '$(notebook) No Notebook';
+            this.statusBarItem.tooltip = 'Onyvore: No active notebook';
+        }
+    }
+    notifyWebview() {
+        this.messageBus.sendNotification('activeNotebook.changed', {
+            notebookId: this.activeNotebookId,
+            activeNotePath: this.activeNotePath,
+        });
+    }
+};
+exports.ActiveNotebookService = ActiveNotebookService;
+exports.ActiveNotebookService = ActiveNotebookService = tslib_1.__decorate([
+    (0, common_1.Injectable)(),
+    tslib_1.__param(0, (0, common_1.Inject)(server_vscode_1.VSCODE_API)),
+    tslib_1.__param(1, (0, common_1.Inject)(isomorphic_jsonrpc_1.MESSAGE_BUS)),
+    tslib_1.__param(2, (0, common_1.Inject)(server_vscode_1.WEBVIEW_PROVIDER)),
+    tslib_1.__metadata("design:paramtypes", [typeof (_a = typeof server_vscode_1.VscodeApi !== "undefined" && server_vscode_1.VscodeApi) === "function" ? _a : Object, typeof (_b = typeof isomorphic_jsonrpc_1.MessageBus !== "undefined" && isomorphic_jsonrpc_1.MessageBus) === "function" ? _b : Object, typeof (_c = typeof server_vscode_1.BaseWebviewProvider !== "undefined" && server_vscode_1.BaseWebviewProvider) === "function" ? _c : Object, typeof (_d = typeof notebook_discovery_service_1.NotebookDiscoveryService !== "undefined" && notebook_discovery_service_1.NotebookDiscoveryService) === "function" ? _d : Object])
+], ActiveNotebookService);
+
+
+/***/ }),
 /* 693 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
@@ -33062,7 +33076,7 @@ exports.OnyvoreWebviewHandlerService = void 0;
 const tslib_1 = __webpack_require__(5);
 const common_1 = __webpack_require__(4);
 const server_vscode_1 = __webpack_require__(2);
-const active_notebook_service_1 = __webpack_require__(690);
+const active_notebook_service_1 = __webpack_require__(692);
 const notebook_discovery_service_1 = __webpack_require__(689);
 const path = tslib_1.__importStar(__webpack_require__(373));
 let OnyvoreWebviewHandlerService = class OnyvoreWebviewHandlerService {

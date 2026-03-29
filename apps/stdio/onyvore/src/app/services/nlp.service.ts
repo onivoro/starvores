@@ -14,7 +14,7 @@ export class NlpService {
     const phrases = new Map<string, number>();
 
     for (const raw of rawPhrases) {
-      const normalized = raw.toLowerCase().trim();
+      const normalized = raw.toLowerCase().trim().replace(/[^\w\s-]/g, '');
       if (normalized.length <= 1) continue;
 
       const words = normalized.split(/\s+/);

@@ -6,6 +6,7 @@ import {
   WEBVIEW_PROVIDER,
 } from '@onivoro/server-vscode';
 import { MESSAGE_BUS, MessageBus } from '@onivoro/isomorphic-jsonrpc';
+import { onyvoreRpcMethods } from '@onivoro/isomorphic-onyvore';
 import { NotebookDiscoveryService } from './notebook-discovery.service';
 import * as path from 'path';
 
@@ -44,6 +45,12 @@ export class ActiveNotebookService implements OnModuleInit, OnModuleDestroy {
     if (currentEditor) {
       this.onEditorChanged(currentEditor);
     }
+
+    // Recheck when notebooks become available (discovery/init may complete after this runs)
+    this.messageBus.onNotification(
+      onyvoreRpcMethods.NOTEBOOK_READY,
+      () => this.recheckActiveEditor(),
+    );
   }
 
   onModuleDestroy(): void {
@@ -59,19 +66,19 @@ export class ActiveNotebookService implements OnModuleInit, OnModuleDestroy {
     return this.activeNotePath;
   }
 
+  recheckActiveEditor(): void {
+    const editor = this.vscode.window.activeTextEditor;
+    this.onEditorChanged(editor ?? null);
+  }
+
   private onEditorChanged(editor: any): void {
-    if (!editor) {
-      this.setActive(null, null);
-      return;
-    }
+    // When editor loses focus (command palette, terminal, etc.), keep the last known state
+    if (!editor) return;
 
     const filePath = editor.document.uri.fsPath;
 
-    // Only track markdown files
-    if (!filePath.endsWith('.md')) {
-      this.setActive(null, null);
-      return;
-    }
+    // Only update when a markdown file is focused; ignore non-markdown files
+    if (!filePath.endsWith('.md')) return;
 
     const notebook = this.notebookDiscovery.findNotebookForFile(filePath);
     if (!notebook) {

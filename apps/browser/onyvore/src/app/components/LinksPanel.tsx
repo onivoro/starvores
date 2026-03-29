@@ -19,6 +19,9 @@ export function LinksPanel() {
   const activeNotePath = useSelector(
     (state: RootState) => state.activeNotebook.activeNotePath,
   );
+  const indexVersion = useSelector(
+    (state: RootState) => state.notebooks.indexVersion,
+  );
 
   useEffect(() => {
     if (!notebookId || !activeNotePath) {
@@ -31,7 +34,7 @@ export function LinksPanel() {
       params: { notebookId, relativePath: activeNotePath },
     });
     setRequestId(id);
-  }, [notebookId, activeNotePath]);
+  }, [notebookId, activeNotePath, indexVersion]);
 
   useEffect(() => {
     if (response?.result) {
