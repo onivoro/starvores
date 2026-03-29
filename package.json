@@ -11,7 +11,8 @@
     "random": "echo 'pass a numeric arg to change the default length of 16' & bun tools/scripts/rando.ts",
     "db:up:local": "cd docker/dev && docker compose up -d --remove-orphans",
     "db:down:local": "cd docker/dev && docker compose down",
-    "fmt": "nx format --fix"
+    "fmt": "nx format --fix",
+    "onyvore:vsix": "npx nx run app-vscode-onyvore:package"
   },
   "private": true,
   "dependencies": {
