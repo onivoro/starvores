@@ -13,7 +13,7 @@ Onyvore follows the `@onivoro/server-vscode` three-tier architecture. Four Nx pr
 |---|---|---|---|---|
 | `app-vscode-onyvore` | `apps/vscode/onyvore/` | Extension Host | Webpack | Orchestrator: spawns stdio server, serves webview, registers commands, manages file watchers, tracks active notebook |
 | `app-stdio-onyvore` | `apps/stdio/onyvore/` | Node.js (child process) | Webpack | Backend: NLP extraction, Orama indexing, link graph computation, `.onyvore/` persistence, startup reconciliation |
-| `app-browser-onyvore` | `apps/browser/onyvore/` | Browser (webview) | Vite | React UI: Notebook Sidebar, Links Panel, Orphan Detection, Search overlay |
+| `app-browser-onyvore` | `apps/browser/onyvore/` | Browser (webview) | Vite | React UI: Notebook Sidebar (single notebook view), Notebook Selector (dropdown with typeahead), omnipresent Search Bar (with snippet previews), Links Panel, Orphan Detection |
 | `lib-isomorphic-onyvore` | `libs/isomorphic/onyvore/` | Any | Vite | Shared types, command constants, JSON-RPC method names |
 
 ### 1.1 Dependency Graph
@@ -38,6 +38,8 @@ app-browser-onyvore
 ├── project.json
 ├── package.json                          # VS Code extension manifest
 ├── .vscodeignore
+├── resources/
+│   └── icon.svg                          # Activity bar icon (must exist at extension root for dev mode)
 ├── webpack.config.js
 ├── tsconfig.json                         # extends tsconfig.server.json
 ├── tsconfig.app.json                     # types: ["node", "vscode"]
@@ -89,17 +91,24 @@ app-browser-onyvore
 ├── tsconfig.json                         # extends tsconfig.web.json
 ├── tsconfig.app.json
 └── src/
-    ├── main.tsx
+    ├── main.tsx                           # imports @vscode/codicons CSS + onyvore.css
     └── app/
-        ├── app.tsx
+        ├── app.tsx                        # Shell: toolbar, NotebookSelector, SearchBar, NotebookSidebar, LinksPanel
+        ├── onyvore.css                    # All styles — VS Code theme vars only (--vscode-editor-foreground/background)
         ├── components/
-        │   ├── NotebookSidebar.tsx
-        │   ├── NotebookTree.tsx
-        │   ├── UnlinkedNotes.tsx
-        │   ├── LinksPanel.tsx
-        │   ├── OutboundLinks.tsx
-        │   ├── InboundLinks.tsx
-        │   └── SearchOverlay.tsx
+        │   ├── NotebookSidebar.tsx        # Fetches notebooks, renders single viewed notebook
+        │   ├── NotebookSelector.tsx       # Dropdown with typeahead for switching notebooks
+        │   ├── NotebookTree.tsx           # File tree for a single notebook (uses TreeItem)
+        │   ├── UnlinkedNotes.tsx          # Orphan detection (uses TreeItem)
+        │   ├── LinksPanel.tsx             # Outbound + Inbound links for active note
+        │   ├── OutboundLinks.tsx          # Outbound link list (uses TreeItem)
+        │   ├── InboundLinks.tsx           # Inbound link list (uses TreeItem)
+        │   ├── SearchBar.tsx              # Omnipresent search with snippet previews (uses TreeItem)
+        │   ├── SearchOverlay.tsx          # (legacy — replaced by SearchBar, can be removed)
+        │   ├── CollapsibleSection.tsx     # Reusable collapsible section with inverted-color header
+        │   ├── TreeItem.tsx               # Shared tree item: label, sublabel, icon, badge, responsive
+        │   ├── Icons.tsx                  # VS Code codicon wrappers (SearchIcon, FileIcon, etc.)
+        │   └── ErrorBoundary.tsx          # React error boundary
         ├── hooks/
         │   └── use-rpc-request.hook.ts
         └── state/
@@ -170,15 +179,17 @@ app-browser-onyvore
 │ Stdio Server             │  │ React Webview                       │
 │ (apps/stdio/onyvore)     │  │ (apps/browser/onyvore)              │
 │                          │  │                                     │
-│ NlpService               │  │ NotebookSidebar                     │
-│ SearchIndexService       │  │ ├── NotebookTree (per notebook)     │
-│ LinkGraphService         │  │ └── UnlinkedNotes                   │
-│ MetadataService          │  │ LinksPanel                          │
-│ PersistenceService       │  │ ├── OutboundLinks                   │
-│ ReconciliationService    │  │ └── InboundLinks                    │
-│                          │  │ SearchOverlay                       │
-│ @StdioHandler methods    │  │                                     │
-│ Progress notifications   │  │ Redux + MessageBus middleware       │
+│ NlpService               │  │ App (shell + viewed notebook state) │
+│ SearchIndexService       │  │ ├── NotebookSelector (dropdown)     │
+│ LinkGraphService         │  │ ├── SearchBar (omnipresent)         │
+│ MetadataService          │  │ ├── NotebookSidebar (single notebook│
+│ PersistenceService       │  │ │   ├── NotebookTree (TreeItem)     │
+│ ReconciliationService    │  │ │   └── UnlinkedNotes (TreeItem)    │
+│                          │  │ └── LinksPanel                      │
+│ @StdioHandler methods    │  │     ├── OutboundLinks (TreeItem)    │
+│ Progress notifications   │  │     └── InboundLinks (TreeItem)     │
+│                          │  │                                     │
+│                          │  │ Redux + MessageBus middleware       │
 └──────────────────────────┘  └─────────────────────────────────────┘
 ```
 
@@ -193,11 +204,10 @@ app-browser-onyvore
 6. Webview Redux store updates, React components re-render
 
 **User searches:**
-1. User triggers `Onyvore: Search Notebook` → command handler
-2. Webview `SearchOverlay` renders, user types query
-3. Webview dispatches `notebook.search` request via Redux middleware
-4. Stdio server runs Orama query with graph boost, returns ranked results
-5. Response lands in Redux store → `SearchOverlay` renders results
+1. User types in the omnipresent `SearchBar` (always visible in sidebar)
+2. Webview dispatches `notebook.search` request via `useRpc()` hook
+3. Stdio server runs Orama query with graph boost, extracts all matching text snippets, filters out zero-match results, returns ranked results with snippets
+4. `SearchBar` renders results inline using `TreeItem` for file name/path, with all snippets shown below each result and search terms highlighted
 
 **User clicks link in Links Panel:**
 1. Webview dispatches `openFile` to extension via `@WebviewHandler`
@@ -256,8 +266,13 @@ The stdio server is where the PRD's functional requirements are implemented. It 
 | `notebook.rebuild` | ext → server | Delete derived artifacts and re-index from scratch |
 | `notebook.reconcile` | ext → server | Trigger startup reconciliation for a notebook |
 | `notebook.initialize` | ext → server | First-time initialization (full scan) for a new notebook |
+| `openFile` | webview → ext | Open a note in the editor (`@WebviewHandler`) |
+| `pickDirectory` | webview → ext | Show native directory picker dialog (`@WebviewHandler`) |
+| `getActiveNotebook` | webview → ext | Get current active notebook context (`@WebviewHandler`) |
+| `getConfiguration` | webview → ext | Read VS Code configuration (`@WebviewHandler`) |
+| `getWorkspaceFolders` | webview → ext | List workspace folders (`@WebviewHandler`) |
 
-**Notifications (server → extension):**
+**Notifications (server → extension → webview):**
 
 | Method | Purpose |
 |---|---|
@@ -265,6 +280,8 @@ The stdio server is where the PRD's functional requirements are implemented. It 
 | `notebook.reconcileProgress` | Progress during startup reconciliation |
 | `notebook.ready` | Notebook initialization or reconciliation complete |
 | `notebook.indexUpdated` | Index/links changed — webview should refresh |
+| `activeNotebook.changed` | Active notebook changed (editor focus moved to different notebook) |
+| `search.show` | Focus the search bar (triggered by command palette) |
 
 ### 3.3 Browser Webview (`app-browser-onyvore`)
 
@@ -272,14 +289,21 @@ The React UI rendered in VS Code's sidebar. All data comes from the stdio server
 
 **Components:**
 
-| Component | PRD Section | Data Source |
+| Component | Purpose | Data Source |
 |---|---|---|
-| `NotebookSidebar` | 4.1 | `notebook.getNotebooks` — file tree per notebook |
-| `UnlinkedNotes` | 4.1 | `notebook.getOrphans` — notes with zero links |
-| `LinksPanel` | 4.1 | `notebook.getLinks` — outbound + inbound for active note |
-| `OutboundLinks` | 4.1 | Subset of LinksPanel data |
-| `InboundLinks` | 4.1 | Subset of LinksPanel data |
-| `SearchOverlay` | 4.3 | `notebook.search` — ranked results |
+| `App` | Shell — manages viewed notebook state, toolbar, layout | Redux `notebooks` + `activeNotebook` slices |
+| `NotebookSelector` | Dropdown with typeahead for switching notebooks | Receives notebooks list as props from App |
+| `SearchBar` | Omnipresent search with inline snippet results | `notebook.search` via `useRpc()` — returns ranked results with all matching snippets |
+| `NotebookSidebar` | Fetches all notebooks, renders single viewed notebook | `notebook.getNotebooks` — receives `notebookId` prop |
+| `NotebookTree` | File tree for one notebook (uses TreeItem) | Notebook data from NotebookSidebar |
+| `UnlinkedNotes` | Orphan detection (uses TreeItem) | `notebook.getOrphans` — notes with zero links |
+| `LinksPanel` | Outbound + Inbound links for active note | `notebook.getLinks` — follows active notebook from Redux |
+| `OutboundLinks` | Outbound link list (uses TreeItem) | Subset of LinksPanel data |
+| `InboundLinks` | Inbound link list (uses TreeItem) | Subset of LinksPanel data |
+| `CollapsibleSection` | Reusable collapsible with inverted-color header, chevron, badge, actions | Wraps NotebookTree, UnlinkedNotes, OutboundLinks, InboundLinks |
+| `TreeItem` | Shared tree row: label, sublabel (responsive), icon, badge | Used by all tree-like lists |
+| `Icons` | VS Code codicon font wrappers | `@vscode/codicons` CSS classes |
+| `ErrorBoundary` | React error boundary | Catches render errors |
 
 **Redux Slices:**
 
@@ -309,7 +333,7 @@ export const onyvoreCommands = {
 ```typescript
 // onyvore-rpc-methods.constant.ts
 export const onyvoreRpcMethods = {
-  // Requests
+  // Requests (ext ↔ server)
   NOTEBOOK_REGISTER: 'notebook.register',
   NOTEBOOK_UNREGISTER: 'notebook.unregister',
   NOTEBOOK_FILE_EVENT: 'notebook.fileEvent',
@@ -321,11 +345,19 @@ export const onyvoreRpcMethods = {
   NOTEBOOK_REBUILD: 'notebook.rebuild',
   NOTEBOOK_RECONCILE: 'notebook.reconcile',
   NOTEBOOK_INITIALIZE: 'notebook.initialize',
-  // Notifications
+  // Notifications (server → ext → webview)
   NOTEBOOK_INIT_PROGRESS: 'notebook.initProgress',
   NOTEBOOK_RECONCILE_PROGRESS: 'notebook.reconcileProgress',
   NOTEBOOK_READY: 'notebook.ready',
   NOTEBOOK_INDEX_UPDATED: 'notebook.indexUpdated',
+  ACTIVE_NOTEBOOK_CHANGED: 'activeNotebook.changed',
+  SEARCH_SHOW: 'search.show',
+  // Webview → extension host (@WebviewHandler)
+  OPEN_FILE: 'openFile',
+  PICK_DIRECTORY: 'pickDirectory',
+  GET_ACTIVE_NOTEBOOK: 'getActiveNotebook',
+  GET_CONFIGURATION: 'getConfiguration',
+  GET_WORKSPACE_FOLDERS: 'getWorkspaceFolders',
 } as const;
 ```
 
@@ -563,13 +595,19 @@ const schema = {
 } as const;
 ```
 
-**Graph-boosted ranking:** After Orama returns text-relevance results, each result's score is adjusted by its inbound link count from the `LinkGraphService`. The exact combination formula is an implementation detail subject to tuning — a reasonable starting point is:
+**Graph-boosted ranking:** After Orama returns text-relevance results, each result's score is adjusted by its inbound link count from the `LinkGraphService`:
 
 ```
 finalScore = oramaScore * (1 + log2(1 + inboundLinkCount))
 ```
 
 This gives diminishing returns to additional links while ensuring well-connected notes outrank isolated ones at equivalent text relevance.
+
+**Snippet extraction:** For each search result, `extractSnippets()` finds all occurrences of every search term in the document content, creates ~120-character windows around each match (with 40 characters of leading context), and merges overlapping windows. Results with zero content matches are filtered out before returning. The search response type is:
+
+```typescript
+Array<{ relativePath: string; title: string; score: number; snippets: string[] }>
+```
 
 ### 4.4 Persistence (`PersistenceService`)
 
@@ -803,7 +841,7 @@ Add to the existing `paths` object:
       "executor": "nx:run-commands",
       "dependsOn": ["build"],
       "options": {
-        "command": "cd apps/vscode/onyvore/dist && node -e \"const p=require('./package.json');p.main='./main.js';require('fs').writeFileSync('./package.json',JSON.stringify(p,null,2))\" && mkdir -p dist && mv server dist/server && mv webview dist/webview && vsce package --no-dependencies --skip-license -o ../onyvore.vsix --baseContentUrl https://github.com/onivoro/starvores --baseImagesUrl https://github.com/onivoro/starvores"
+        "command": "cd apps/vscode/onyvore/dist && node -e \"const p=require('./package.json');p.main='./main.js';require('fs').writeFileSync('./package.json',JSON.stringify(p,null,2))\" && vsce package --no-dependencies --skip-license -o ../onyvore.vsix --baseContentUrl https://github.com/onivoro/starvores --baseImagesUrl https://github.com/onivoro/starvores"
       }
     }
   },
@@ -904,10 +942,18 @@ Add to the existing `paths` object:
 |---|---|---|
 | `react`, `react-dom` | `app-browser-onyvore` | UI framework |
 | `@reduxjs/toolkit`, `react-redux` | `app-browser-onyvore` | State management |
-| `@mui/material`, `@emotion/react`, `@emotion/styled` | `app-browser-onyvore` | Component library |
+| `@vscode/codicons` | `app-browser-onyvore` | VS Code icon font (codicon CSS classes) |
 | `uuid` | `app-browser-onyvore` | JSON-RPC request IDs |
 
-### 7.4 Build
+**Styling:** No component library. All styles are in `onyvore.css` using only two VS Code CSS custom properties: `--vscode-editor-foreground` and `--vscode-editor-background`. Derived colors (borders, hover states, scrollbars) use `color-mix(in srgb, ...)` for opacity variations. Section headers invert the two color roles. The codicon font is inlined as base64 via Vite's `assetsInlineLimit` to avoid webview path resolution issues, with `data:` added to the CSP `font-src` directive.
+
+### 7.4 Webview Build & CSP
+
+**Vite config** (`apps/browser/onyvore/vite.config.ts`): Sets `assetsInlineLimit: 200000` to inline the codicon `.ttf` font as a base64 data URI, avoiding VS Code webview path resolution issues with font URLs.
+
+**CSP override** (`OnyvoreWebviewProvider.getHtmlForWebview`): Adds `data:` to the `font-src` CSP directive so the base64-inlined font loads: `html.replace('font-src ', 'font-src data: ')`.
+
+### 7.5 Build
 
 | Package | Used In | Purpose |
 |---|---|---|
@@ -916,3 +962,12 @@ Add to the existing `paths` object:
 | `@nx/webpack`, `webpack` | `app-vscode-onyvore`, `app-stdio-onyvore` | Bundling |
 | `@nx/vite`, `vite`, `@vitejs/plugin-react` | `app-browser-onyvore`, `lib-isomorphic-onyvore` | Bundling |
 | `@vscode/vsce` | devDependency (root) | VSIX packaging |
+
+### 7.6 Root Package Scripts
+
+```json
+"onyvore:vsix": "npx nx run app-vscode-onyvore:package"   // Build + package VSIX
+"onyvore:install": "code --install-extension apps/vscode/onyvore/onyvore.vsix"  // Install locally
+```
+
+The `package` target runs `build` (which chains stdio + browser + vscode builds), patches `package.json` main entry for the flat dist layout, and runs `vsce package`. Output: `apps/vscode/onyvore/onyvore.vsix`.

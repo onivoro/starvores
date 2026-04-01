@@ -33083,7 +33083,7 @@ exports.ActiveNotebookService = ActiveNotebookService = tslib_1.__decorate([
 
 "use strict";
 
-var _a, _b, _c, _d, _e, _f;
+var _a, _b, _c, _d, _e, _f, _g, _h;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OnyvoreWebviewHandlerService = void 0;
 const tslib_1 = __webpack_require__(5);
@@ -33092,17 +33092,20 @@ const server_vscode_1 = __webpack_require__(2);
 const isomorphic_onyvore_1 = __webpack_require__(685);
 const active_notebook_service_1 = __webpack_require__(692);
 const notebook_discovery_service_1 = __webpack_require__(689);
+const file_watcher_service_1 = __webpack_require__(690);
 const path = tslib_1.__importStar(__webpack_require__(373));
 let OnyvoreWebviewHandlerService = class OnyvoreWebviewHandlerService {
     vscode;
     workspace;
     activeNotebook;
     notebookDiscovery;
-    constructor(vscode, workspace, activeNotebook, notebookDiscovery) {
+    fileWatcher;
+    constructor(vscode, workspace, activeNotebook, notebookDiscovery, fileWatcher) {
         this.vscode = vscode;
         this.workspace = workspace;
         this.activeNotebook = activeNotebook;
         this.notebookDiscovery = notebookDiscovery;
+        this.fileWatcher = fileWatcher;
     }
     async openFile(params) {
         const notebook = this.notebookDiscovery.getNotebook(params.notebookId);
@@ -33122,8 +33125,13 @@ let OnyvoreWebviewHandlerService = class OnyvoreWebviewHandlerService {
             openLabel: 'Select Directory',
         });
         if (!uris || uris.length === 0)
-            return { path: null };
-        return { path: uris[0].fsPath };
+            return { directoryPath: null };
+        return { directoryPath: uris[0].fsPath };
+    }
+    async initializeNotebook(params) {
+        const notebook = await this.notebookDiscovery.initializeNotebook(params.directoryPath);
+        this.fileWatcher.registerNotebook(notebook.id, notebook.rootPath);
+        return { success: true, notebookId: notebook.id };
     }
     getActiveNotebook() {
         return {
@@ -33145,14 +33153,20 @@ tslib_1.__decorate([
     (0, server_vscode_1.WebviewHandler)(isomorphic_onyvore_1.onyvoreRpcMethods.OPEN_FILE),
     tslib_1.__metadata("design:type", Function),
     tslib_1.__metadata("design:paramtypes", [Object]),
-    tslib_1.__metadata("design:returntype", typeof (_e = typeof Promise !== "undefined" && Promise) === "function" ? _e : Object)
+    tslib_1.__metadata("design:returntype", typeof (_f = typeof Promise !== "undefined" && Promise) === "function" ? _f : Object)
 ], OnyvoreWebviewHandlerService.prototype, "openFile", null);
 tslib_1.__decorate([
     (0, server_vscode_1.WebviewHandler)(isomorphic_onyvore_1.onyvoreRpcMethods.PICK_DIRECTORY),
     tslib_1.__metadata("design:type", Function),
     tslib_1.__metadata("design:paramtypes", []),
-    tslib_1.__metadata("design:returntype", typeof (_f = typeof Promise !== "undefined" && Promise) === "function" ? _f : Object)
+    tslib_1.__metadata("design:returntype", typeof (_g = typeof Promise !== "undefined" && Promise) === "function" ? _g : Object)
 ], OnyvoreWebviewHandlerService.prototype, "pickDirectory", null);
+tslib_1.__decorate([
+    (0, server_vscode_1.WebviewHandler)(isomorphic_onyvore_1.onyvoreRpcMethods.NOTEBOOK_INITIALIZE),
+    tslib_1.__metadata("design:type", Function),
+    tslib_1.__metadata("design:paramtypes", [Object]),
+    tslib_1.__metadata("design:returntype", typeof (_h = typeof Promise !== "undefined" && Promise) === "function" ? _h : Object)
+], OnyvoreWebviewHandlerService.prototype, "initializeNotebook", null);
 tslib_1.__decorate([
     (0, server_vscode_1.WebviewHandler)(isomorphic_onyvore_1.onyvoreRpcMethods.GET_ACTIVE_NOTEBOOK),
     tslib_1.__metadata("design:type", Function),
@@ -33174,7 +33188,7 @@ tslib_1.__decorate([
 exports.OnyvoreWebviewHandlerService = OnyvoreWebviewHandlerService = tslib_1.__decorate([
     (0, common_1.Injectable)(),
     tslib_1.__param(0, (0, common_1.Inject)(server_vscode_1.VSCODE_API)),
-    tslib_1.__metadata("design:paramtypes", [typeof (_a = typeof server_vscode_1.VscodeApi !== "undefined" && server_vscode_1.VscodeApi) === "function" ? _a : Object, typeof (_b = typeof server_vscode_1.VscodeWorkspaceService !== "undefined" && server_vscode_1.VscodeWorkspaceService) === "function" ? _b : Object, typeof (_c = typeof active_notebook_service_1.ActiveNotebookService !== "undefined" && active_notebook_service_1.ActiveNotebookService) === "function" ? _c : Object, typeof (_d = typeof notebook_discovery_service_1.NotebookDiscoveryService !== "undefined" && notebook_discovery_service_1.NotebookDiscoveryService) === "function" ? _d : Object])
+    tslib_1.__metadata("design:paramtypes", [typeof (_a = typeof server_vscode_1.VscodeApi !== "undefined" && server_vscode_1.VscodeApi) === "function" ? _a : Object, typeof (_b = typeof server_vscode_1.VscodeWorkspaceService !== "undefined" && server_vscode_1.VscodeWorkspaceService) === "function" ? _b : Object, typeof (_c = typeof active_notebook_service_1.ActiveNotebookService !== "undefined" && active_notebook_service_1.ActiveNotebookService) === "function" ? _c : Object, typeof (_d = typeof notebook_discovery_service_1.NotebookDiscoveryService !== "undefined" && notebook_discovery_service_1.NotebookDiscoveryService) === "function" ? _d : Object, typeof (_e = typeof file_watcher_service_1.FileWatcherService !== "undefined" && file_watcher_service_1.FileWatcherService) === "function" ? _e : Object])
 ], OnyvoreWebviewHandlerService);
 
 

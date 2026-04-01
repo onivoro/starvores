@@ -74,7 +74,7 @@ The parent notebook's file watcher, search index, and link graph skip any subdir
 ## 4. Functional Requirements
 
 ### 4.1 Knowledge Organization
-* **Notebook Sidebar:** A dedicated sidebar panel (separate from VS Code's native Explorer) showing all discovered notebooks in the workspace. Each notebook displays its contained folders and notes. Notebooks are visually distinct from regular directories. The Notebook Sidebar coexists alongside the Explorer — it does not replace it. The Explorer shows the raw filesystem; the Notebook Sidebar shows Onyvore's view of the workspace (only notebooks and their managed `.md` files).
+* **Notebook Sidebar:** A dedicated sidebar panel accessible via an activity bar icon (separate from VS Code's native Explorer). The sidebar shows **one notebook at a time** — the "viewed notebook." When multiple notebooks exist, a **dropdown selector with typeahead filtering** allows the user to switch between notebooks. A **plus (+) button** in the toolbar allows initializing a new notebook via a directory picker. Single-notebook workspaces auto-select that notebook; newly initialized notebooks are auto-selected in the dropdown. The sidebar coexists alongside the Explorer — it does not replace it.
 * **Automatic Link Graph:** Connections between notes are computed automatically within each notebook — no manual linking syntax required. Links do not cross notebook boundaries. See Section 4.4 for the linking algorithm.
 * **Links Panel:** A dedicated sidebar panel for the active note, divided into two sections:
   * **Outbound Links:** Notes that the active note links *to* (noun phrases extracted from this note matched a target note's title). Clicking an entry navigates to the target note. Each entry shows the top matching noun phrase and aggregate occurrence count (e.g., "hotsauce (5 mentions) → hotsauce.md").
@@ -95,7 +95,8 @@ The parent notebook's file watcher, search index, and link graph skip any subdir
 ### 4.3 High-Performance Search
 * **Search Engine:** Powered by **Orama**, a pure-TypeScript, in-memory search engine. Orama indexes the full text of each note, providing broad keyword and partial-match recall. Each notebook has its own independent search index.
 * **Fuzzy Matching:** Instant results for keyword and partial matches across the active notebook.
-* **Graph-Boosted Ranking:** Search results are boosted by link graph centrality. Notes with more inbound links rank higher, surfacing well-connected notes above isolated ones with the same keyword relevance. The specific mechanism for combining graph signal with Orama's text relevance score is an implementation detail subject to empirical tuning. This allows the link graph to improve search quality without constraining what is searchable.
+* **Graph-Boosted Ranking:** Search results are boosted by link graph centrality. Notes with more inbound links rank higher, surfacing well-connected notes above isolated ones with the same keyword relevance. The formula is: `finalScore = oramaScore * (1 + log2(1 + inboundLinkCount))`. Results with zero content matches (matched only by title fuzzy matching) are filtered out.
+* **Snippet Previews:** Each search result includes **all matching text snippets** — ~120-character windows around every occurrence of the search terms in the document. Nearby matches are merged into single longer snippets. Search terms are highlighted within snippets. The match count is displayed as a badge on each result.
 * **Persistence:** All derived artifacts (`index.bin`, `links.json`, `metadata.json`) are written to disk on two triggers: after each debounced batch of incremental updates completes, and on extension deactivation (exit). This ensures a VS Code crash loses at most one debounce window (~300ms) of work. The persisted `index.bin` allows sub-100ms startup for large notebooks (10,000+ notes).
 
 ### 4.4 Automatic Linking
@@ -198,7 +199,7 @@ Ignored paths are excluded from:
 * **Framework:** NestJS via `@onivoro/server-vscode` (three-tier architecture: extension host + stdio server + React webview).
 * **Search Engine:** Orama (Pure JS).
 * **NLP:** compromise (Pure JS noun-phrase extraction).
-* **Webview UI:** React + Redux + Material UI.
+* **Webview UI:** React + Redux + native CSS with VS Code theme variables (`--vscode-editor-foreground`, `--vscode-editor-background`) + `@vscode/codicons` icon font.
 * **Build:** Nx monorepo. Webpack (extension host + stdio server), Vite (browser webview).
 
 ---
@@ -214,23 +215,34 @@ Notebook discovery only runs at two points:
 
 Discovery does not run continuously. If a `.onyvore/` directory is created mid-session (e.g., by an agent or script running `mkdir some-dir/.onyvore`), Onyvore will not detect it until the user runs `Onyvore: Discover Notebooks` or restarts the workspace. This is intentional — watching the entire workspace tree for new `.onyvore/` directories would be expensive and is not justified for a rare event.
 
-### 6.2 Active Notebook
-The **active notebook** is the notebook that contains the file currently focused in the editor. All notebook-scoped commands (Search) operate on the active notebook. The active notebook is determined automatically:
+### 6.2 Active Notebook vs. Viewed Notebook
+Onyvore distinguishes between two notebook concepts:
 
-* **By focused file:** When the user opens or switches to a file, Onyvore resolves which notebook owns that file and sets it as active. If the file is unmanaged (not inside any notebook), there is no active notebook.
-* **Status bar indicator:** The active notebook's name (its directory name) is displayed in the VS Code status bar. This provides constant visibility into which notebook commands will target. If no notebook is active, the status bar shows "No Notebook."
-* **No manual selection required.** The active notebook always follows focus. There is no "pin" or "lock" mechanism — switching to a file in a different notebook switches the active notebook.
+* **Active notebook:** The notebook that contains the file currently focused in the editor. Determined automatically by file focus. Drives the Links Panel (outbound/inbound links for the focused note). The active notebook's name is displayed in the VS Code status bar. If no notebook owns the focused file, there is no active notebook.
+* **Viewed notebook:** The notebook currently displayed in the Notebook Sidebar. The user explicitly selects this via the dropdown. Drives the file tree, unlinked notes, and search scope. Defaults to the active notebook if no explicit selection has been made, or to the sole notebook if only one exists.
 
-When no notebook is active, notebook-scoped commands are disabled with a message prompting the user to open a file within a notebook.
+This separation allows the user to browse one notebook's files while editing a note in a different notebook. The Links Panel always reflects the active notebook (follows the editor), while the sidebar reflects the viewed notebook (follows the dropdown).
 
-### 6.3 Onboarding Flow
-1.  **Initialize:** User runs `Onyvore: Initialize Notebook` and selects a directory via the directory picker. Onyvore creates the `.onyvore/` metadata directory and begins a background scan of all `.md` files within the notebook's scope. The notebook is immediately usable — search and links return progressive results as files are processed (see Section 4.4, Initial Notebook Computation).
-2.  **Search:** Integrated search bar provides instant, scoped access to the active notebook's contents.
+### 6.3 Sidebar Layout
+The sidebar is organized top-to-bottom:
 
-### 6.4 Command Palette Highlights
+1. **Toolbar:** "ONYVORE" title + plus (+) button (initialize new notebook) + rebuild button (rebuild viewed notebook's index).
+2. **Notebook Selector:** Dropdown with typeahead filtering. Shown when more than one notebook exists. The selected notebook becomes the "viewed notebook."
+3. **Search Bar:** Always visible (omnipresent). Searches the viewed notebook's full-text index. Results appear inline below the search field, each showing the note title, file path (using the shared `TreeItem` component), a match count badge, and **all matching text snippets** with highlighted search terms. Files with zero content matches are filtered out. Pressing Escape clears the search.
+4. **File Tree:** Collapsible section showing the viewed notebook's files with progress bar during initialization/reconciliation.
+5. **Unlinked Notes:** Collapsible section (collapsed by default) showing orphan notes in the viewed notebook.
+6. **Links Panel:** Collapsible sections for outbound links and backlinks of the **active note** (from the active notebook, which follows editor focus).
+
+All tree-like lists (files, links, unlinked notes, search results) use a shared `TreeItem` component with label, sublabel (responsive — drops below label when sidebar is narrow), icon (`@vscode/codicons`), and optional badge. Sections use a shared `CollapsibleSection` component with inverted-color headers (foreground as background, vice versa).
+
+### 6.4 Onboarding Flow
+1.  **Initialize:** User clicks the plus (+) button in the sidebar toolbar, selects a directory via the native picker. Alternatively, runs `Onyvore: Initialize Notebook` from the Command Palette. Onyvore creates the `.onyvore/` metadata directory and begins a background scan. The new notebook auto-selects in the dropdown.
+2.  **Search:** The omnipresent search bar provides instant, scoped access to the viewed notebook's contents.
+
+### 6.5 Command Palette Highlights
 * `Onyvore: Initialize Notebook` (Create a new notebook in a directory selected via the directory picker).
 * `Onyvore: Discover Notebooks` (Re-scan the workspace for `.onyvore/` directories and register any newly discovered notebooks).
-* `Onyvore: Search Notebook` (Fuzzy-search overlay, scoped to the active notebook).
+* `Onyvore: Search Notebook` (Focus the search bar, scoped to the viewed notebook).
 * `Onyvore: Rebuild Notebook` (Delete all derived artifacts — `index.bin`, `links.json`, `metadata.json` — from `.onyvore/` and trigger a full re-index from scratch. Useful as a recovery mechanism if the index or link graph enters a bad state).
 
 ---

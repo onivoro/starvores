@@ -8,6 +8,7 @@ import {
 import { onyvoreRpcMethods } from '@onivoro/isomorphic-onyvore';
 import { ActiveNotebookService } from './active-notebook.service';
 import { NotebookDiscoveryService } from './notebook-discovery.service';
+import { FileWatcherService } from './file-watcher.service';
 import * as path from 'path';
 
 @Injectable()
@@ -17,6 +18,7 @@ export class OnyvoreWebviewHandlerService {
     private readonly workspace: VscodeWorkspaceService,
     private readonly activeNotebook: ActiveNotebookService,
     private readonly notebookDiscovery: NotebookDiscoveryService,
+    private readonly fileWatcher: FileWatcherService,
   ) {}
 
   @WebviewHandler(onyvoreRpcMethods.OPEN_FILE)
@@ -35,7 +37,7 @@ export class OnyvoreWebviewHandlerService {
   }
 
   @WebviewHandler(onyvoreRpcMethods.PICK_DIRECTORY)
-  async pickDirectory(): Promise<{ path: string | null }> {
+  async pickDirectory(): Promise<{ directoryPath: string | null }> {
     const uris = await this.vscode.window.showOpenDialog({
       canSelectFolders: true,
       canSelectFiles: false,
@@ -43,8 +45,19 @@ export class OnyvoreWebviewHandlerService {
       openLabel: 'Select Directory',
     });
 
-    if (!uris || uris.length === 0) return { path: null };
-    return { path: uris[0].fsPath };
+    if (!uris || uris.length === 0) return { directoryPath: null };
+    return { directoryPath: uris[0].fsPath };
+  }
+
+  @WebviewHandler(onyvoreRpcMethods.NOTEBOOK_INITIALIZE)
+  async initializeNotebook(params: {
+    directoryPath: string;
+  }): Promise<{ success: boolean; notebookId?: string }> {
+    const notebook = await this.notebookDiscovery.initializeNotebook(
+      params.directoryPath,
+    );
+    this.fileWatcher.registerNotebook(notebook.id, notebook.rootPath);
+    return { success: true, notebookId: notebook.id };
   }
 
   @WebviewHandler(onyvoreRpcMethods.GET_ACTIVE_NOTEBOOK)
