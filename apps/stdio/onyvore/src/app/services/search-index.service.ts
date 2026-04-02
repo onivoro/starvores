@@ -77,7 +77,7 @@ export class SearchIndexService {
 
     const results = await search(index, {
       term: query,
-      properties: ['title', 'content'],
+      properties: ['title', 'relativePath', 'content'],
       tolerance: 1,
       limit: limit * 2, // Fetch extra so we can re-rank
     });

@@ -137,7 +137,7 @@ export class OnyvoreMessageHandlerService {
 
     for (const event of events) {
       const { type, relativePath } = event;
-      const title = path.basename(relativePath, '.md');
+      const title = this.searchTitleFromPath(relativePath);
 
       switch (type) {
         case 'create': {
@@ -212,7 +212,7 @@ export class OnyvoreMessageHandlerService {
       try {
         const content = await fs.readFile(fullPath, 'utf-8');
         const stat = await fs.stat(fullPath);
-        const title = path.basename(relPath, '.md');
+        const title = this.searchTitleFromPath(relPath);
 
         await this.searchIndexService.addDocument(notebookId, relPath, title, content);
         this.linkGraphService.processCreate(notebookId, relPath, content);
@@ -318,5 +318,14 @@ export class OnyvoreMessageHandlerService {
       });
 
     return { success: true };
+  }
+
+  private searchTitleFromPath(relativePath: string): string {
+    const basename = path.basename(relativePath, '.md');
+    const dir = path.dirname(relativePath);
+    if (dir && dir !== '.') {
+      return `${path.basename(dir)} ${basename}`;
+    }
+    return basename;
   }
 }

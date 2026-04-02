@@ -30268,7 +30268,7 @@ let OnyvoreMessageHandlerService = class OnyvoreMessageHandlerService {
         const fs = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 712, 23));
         for (const event of events) {
             const { type, relativePath } = event;
-            const title = path.basename(relativePath, '.md');
+            const title = this.searchTitleFromPath(relativePath);
             switch (type) {
                 case 'create': {
                     const fullPath = path.join(notebookId, relativePath);
@@ -30319,7 +30319,7 @@ let OnyvoreMessageHandlerService = class OnyvoreMessageHandlerService {
             try {
                 const content = await fs.readFile(fullPath, 'utf-8');
                 const stat = await fs.stat(fullPath);
-                const title = path.basename(relPath, '.md');
+                const title = this.searchTitleFromPath(relPath);
                 await this.searchIndexService.addDocument(notebookId, relPath, title, content);
                 this.linkGraphService.processCreate(notebookId, relPath, content);
                 this.metadataService.setFile(notebookId, relPath, stat.mtimeMs);
@@ -30392,6 +30392,14 @@ let OnyvoreMessageHandlerService = class OnyvoreMessageHandlerService {
             notebook.status = 'ready';
         });
         return { success: true };
+    }
+    searchTitleFromPath(relativePath) {
+        const basename = path.basename(relativePath, '.md');
+        const dir = path.dirname(relativePath);
+        if (dir && dir !== '.') {
+            return `${path.basename(dir)} ${basename}`;
+        }
+        return basename;
     }
 };
 exports.OnyvoreMessageHandlerService = OnyvoreMessageHandlerService;
@@ -30688,7 +30696,7 @@ let SearchIndexService = class SearchIndexService {
             return [];
         const results = await (0, orama_1.search)(index, {
             term: query,
-            properties: ['title', 'content'],
+            properties: ['title', 'relativePath', 'content'],
             tolerance: 1,
             limit: limit * 2, // Fetch extra so we can re-rank
         });
@@ -37483,12 +37491,13 @@ let LinkGraphService = class LinkGraphService {
     }
     processCreate(notebookId, relativePath, content) {
         const graph = this.getOrCreateGraph(notebookId);
-        const title = this.titleFromPath(relativePath);
-        // Register title
-        if (!graph.titleIndex.has(title)) {
-            graph.titleIndex.set(title, new Set());
+        // Register all title variants (basename + path-qualified)
+        for (const title of this.titlesFromPath(relativePath)) {
+            if (!graph.titleIndex.has(title)) {
+                graph.titleIndex.set(title, new Set());
+            }
+            graph.titleIndex.get(title).add(relativePath);
         }
-        graph.titleIndex.get(title).add(relativePath);
         // Extract noun phrases and cache them
         const extraction = this.nlpService.extractNounPhrases(content);
         graph.phraseCache.set(relativePath, extraction.phrases);
@@ -37497,32 +37506,41 @@ let LinkGraphService = class LinkGraphService {
         for (const edge of outboundEdges) {
             this.addEdge(graph, edge);
         }
-        // Reverse match: scan all other files' cached phrases for matches against this file's title
+        // Reverse match: scan all other files' cached phrases for matches against this file's titles
+        const titles = this.titlesFromPath(relativePath);
         for (const [otherPath, otherPhrases] of graph.phraseCache) {
             if (otherPath === relativePath)
                 continue;
-            const matchCount = otherPhrases.get(title);
-            if (matchCount === undefined)
+            // Check all title variants (basename, parent/basename)
+            let bestNoun = null;
+            let totalCount = 0;
+            let bestCount = 0;
+            for (const t of titles) {
+                const count = otherPhrases.get(t);
+                if (count !== undefined) {
+                    totalCount += count;
+                    if (count > bestCount) {
+                        bestCount = count;
+                        bestNoun = t;
+                    }
+                }
+            }
+            if (!bestNoun)
                 continue;
-            // Check if an edge already exists from the reverse-match source to this target
             const key = `${otherPath}::${relativePath}`;
             const existing = graph.edges.get(key);
             if (existing) {
-                // Title match may already be captured; ensure it's counted
-                // The existing edge was built from prior matchPhrasesAgainstTitles
-                // which would have already matched this title if available.
-                // This branch handles the case where the title was just registered.
-                existing.count += matchCount;
-                if (matchCount > (otherPhrases.get(existing.noun) ?? 0)) {
-                    existing.noun = title;
+                existing.count += totalCount;
+                if (bestCount > (otherPhrases.get(existing.noun) ?? 0)) {
+                    existing.noun = bestNoun;
                 }
             }
             else {
                 this.addEdge(graph, {
                     source: otherPath,
                     target: relativePath,
-                    noun: title,
-                    count: matchCount,
+                    noun: bestNoun,
+                    count: totalCount,
                 });
             }
         }
@@ -37542,18 +37560,19 @@ let LinkGraphService = class LinkGraphService {
     }
     processDelete(notebookId, relativePath) {
         const graph = this.getOrCreateGraph(notebookId);
-        const title = this.titleFromPath(relativePath);
         // Remove all outbound edges from this file
         this.removeOutboundEdges(graph, relativePath);
         // Remove all inbound edges pointing to this file
         this.removeInboundEdges(graph, relativePath);
-        // Remove from phrase cache and title index
+        // Remove from phrase cache and title index (all title variants)
         graph.phraseCache.delete(relativePath);
-        const pathsForTitle = graph.titleIndex.get(title);
-        if (pathsForTitle) {
-            pathsForTitle.delete(relativePath);
-            if (pathsForTitle.size === 0) {
-                graph.titleIndex.delete(title);
+        for (const title of this.titlesFromPath(relativePath)) {
+            const pathsForTitle = graph.titleIndex.get(title);
+            if (pathsForTitle) {
+                pathsForTitle.delete(relativePath);
+                if (pathsForTitle.size === 0) {
+                    graph.titleIndex.delete(title);
+                }
             }
         }
     }
@@ -37630,11 +37649,12 @@ let LinkGraphService = class LinkGraphService {
     }
     registerTitle(notebookId, relativePath) {
         const graph = this.getOrCreateGraph(notebookId);
-        const title = this.titleFromPath(relativePath);
-        if (!graph.titleIndex.has(title)) {
-            graph.titleIndex.set(title, new Set());
+        for (const title of this.titlesFromPath(relativePath)) {
+            if (!graph.titleIndex.has(title)) {
+                graph.titleIndex.set(title, new Set());
+            }
+            graph.titleIndex.get(title).add(relativePath);
         }
-        graph.titleIndex.get(title).add(relativePath);
     }
     getInboundCount(notebookId, relativePath) {
         const graph = this.graphs.get(notebookId);
@@ -37732,6 +37752,21 @@ let LinkGraphService = class LinkGraphService {
     }
     titleFromPath(relativePath) {
         return path.basename(relativePath, '.md').toLowerCase();
+    }
+    /**
+     * Returns all title variants for a file path, used for titleIndex registration and matching.
+     * For "something/overview.md" returns ["overview", "something overview"].
+     * For root-level "overview.md" returns ["overview"].
+     */
+    titlesFromPath(relativePath) {
+        const basename = path.basename(relativePath, '.md').toLowerCase();
+        const dir = path.dirname(relativePath);
+        const titles = [basename];
+        if (dir && dir !== '.') {
+            const parentDir = path.basename(dir).toLowerCase();
+            titles.push(`${parentDir} ${basename}`);
+        }
+        return titles;
     }
 };
 exports.LinkGraphService = LinkGraphService;
@@ -38010,7 +38045,7 @@ let ReconciliationService = class ReconciliationService {
         for (const relPath of [...created, ...modified]) {
             const content = await this.readFile(notebookId, relPath);
             const stat = await this.statFile(notebookId, relPath);
-            const title = path.basename(relPath, '.md');
+            const title = this.searchTitleFromPath(relPath);
             const isCreate = created.includes(relPath);
             if (isCreate) {
                 await this.searchIndexService.addDocument(notebookId, relPath, title, content);
@@ -38035,7 +38070,7 @@ let ReconciliationService = class ReconciliationService {
         let processed = 0;
         for (const file of files) {
             const content = await this.readFile(notebookId, file.relativePath);
-            const title = path.basename(file.relativePath, '.md');
+            const title = this.searchTitleFromPath(file.relativePath);
             await this.searchIndexService.addDocument(notebookId, file.relativePath, title, content);
             this.linkGraphService.processCreate(notebookId, file.relativePath, content);
             this.metadataService.setFile(notebookId, file.relativePath, file.mtimeMs);
@@ -38107,6 +38142,14 @@ let ReconciliationService = class ReconciliationService {
     sendProgress(notebookId, processed, total) {
         const progress = total > 0 ? Math.round((processed / total) * 100) : 100;
         this.messageBus.sendNotification(isomorphic_onyvore_1.onyvoreRpcMethods.NOTEBOOK_RECONCILE_PROGRESS, { notebookId, processed, total, progress });
+    }
+    searchTitleFromPath(relativePath) {
+        const basename = path.basename(relativePath, '.md');
+        const dir = path.dirname(relativePath);
+        if (dir && dir !== '.') {
+            return `${path.basename(dir)} ${basename}`;
+        }
+        return basename;
     }
     sendInitProgress(notebookId, processed, total) {
         const progress = total > 0 ? Math.round((processed / total) * 100) : 100;

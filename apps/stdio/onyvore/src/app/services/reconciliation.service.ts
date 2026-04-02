@@ -71,7 +71,7 @@ export class ReconciliationService {
     for (const relPath of [...created, ...modified]) {
       const content = await this.readFile(notebookId, relPath);
       const stat = await this.statFile(notebookId, relPath);
-      const title = path.basename(relPath, '.md');
+      const title = this.searchTitleFromPath(relPath);
       const isCreate = created.includes(relPath);
 
       if (isCreate) {
@@ -100,7 +100,7 @@ export class ReconciliationService {
 
     for (const file of files) {
       const content = await this.readFile(notebookId, file.relativePath);
-      const title = path.basename(file.relativePath, '.md');
+      const title = this.searchTitleFromPath(file.relativePath);
 
       await this.searchIndexService.addDocument(
         notebookId,
@@ -201,6 +201,15 @@ export class ReconciliationService {
       onyvoreRpcMethods.NOTEBOOK_RECONCILE_PROGRESS,
       { notebookId, processed, total, progress },
     );
+  }
+
+  private searchTitleFromPath(relativePath: string): string {
+    const basename = path.basename(relativePath, '.md');
+    const dir = path.dirname(relativePath);
+    if (dir && dir !== '.') {
+      return `${path.basename(dir)} ${basename}`;
+    }
+    return basename;
   }
 
   private sendInitProgress(

@@ -518,7 +518,9 @@ interface LinkGraph {
   /** Cached noun phrases per file: relativePath → Map<normalizedPhrase, count> */
   phraseCache: Map<string, Map<string, number>>;
 
-  /** All note titles (basenames, lowercase): title → set of relative paths */
+  /** All note title variants (lowercase): title → set of relative paths.
+   *  Each file registers its basename ("overview") plus, for files in subdirectories,
+   *  a path-qualified variant ("work overview" for work/overview.md). */
   titleIndex: Map<string, Set<string>>;
 }
 ```
@@ -527,9 +529,9 @@ interface LinkGraph {
 
 **Create** (new file added):
 1. Extract noun phrases → cache in `phraseCache`
-2. Register the file's title in `titleIndex`
+2. Register all title variants in `titleIndex` (basename + path-qualified for subdirectory files)
 3. Match phrases against `titleIndex` → add outbound edges (skip self-links)
-4. Reverse match: scan `phraseCache` of all other files for phrases matching this file's title → add inbound edges
+4. Reverse match: scan `phraseCache` of all other files for phrases matching any of this file's title variants → add inbound edges
 
 **Change** (file modified):
 1. Remove all outbound edges for this file from `edges` and `outboundIndex`
@@ -539,7 +541,7 @@ interface LinkGraph {
 **Delete** (file removed):
 1. Remove all outbound edges for this file
 2. Remove all inbound edges pointing to this file
-3. Remove from `phraseCache` and `titleIndex`
+3. Remove from `phraseCache` and `titleIndex` (all title variants)
 
 **Matching logic:**
 ```typescript
@@ -590,9 +592,12 @@ import { create, insert, remove, search, save, load } from '@orama/orama';
 // Schema per notebook
 const schema = {
   relativePath: 'string',
-  title: 'string',       // basename without .md
+  title: 'string',       // path-qualified: "parentDir basename" for subdirectory files, "basename" for root files
   content: 'string',     // full markdown content
 } as const;
+
+// Search queries match against title, relativePath, and content
+// This allows "work overview" to preferentially surface work/overview.md
 ```
 
 **Graph-boosted ranking:** After Orama returns text-relevance results, each result's score is adjusted by its inbound link count from the `LinkGraphService`:

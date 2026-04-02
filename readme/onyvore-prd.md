@@ -93,8 +93,8 @@ The parent notebook's file watcher, search index, and link graph skip any subdir
 * **Rename Handling:** `FileSystemWatcher` emits a delete + create pair for renames. The delete path prunes old edges; the create path rebuilds them against the new filename and content. The link graph self-heals — no stable file IDs are needed. Note: this approach performs redundant work (full NLP extraction on content that hasn't changed). Optimizing rename detection (e.g., matching content hashes within a short time window to coalesce delete + create into a single rename operation) is deferred to a future iteration.
 
 ### 4.3 High-Performance Search
-* **Search Engine:** Powered by **Orama**, a pure-TypeScript, in-memory search engine. Orama indexes the full text of each note, providing broad keyword and partial-match recall. Each notebook has its own independent search index.
-* **Fuzzy Matching:** Instant results for keyword and partial matches across the active notebook.
+* **Search Engine:** Powered by **Orama**, a pure-TypeScript, in-memory search engine. Orama indexes the title (path-qualified for files in subdirectories, e.g., "work overview" for `work/overview.md`), the file path, and the full text of each note, providing broad keyword and partial-match recall. Each notebook has its own independent search index.
+* **Fuzzy Matching:** Instant results for keyword and partial matches across the active notebook. Search queries match against the note title, file path, and content — so searching "work overview" preferentially surfaces `work/overview.md` over `personal/overview.md`.
 * **Graph-Boosted Ranking:** Search results are boosted by link graph centrality. Notes with more inbound links rank higher, surfacing well-connected notes above isolated ones with the same keyword relevance. The formula is: `finalScore = oramaScore * (1 + log2(1 + inboundLinkCount))`. Results with zero content matches (matched only by title fuzzy matching) are filtered out.
 * **Snippet Previews:** Each search result includes **all matching text snippets** — ~120-character windows around every occurrence of the search terms in the document. Nearby matches are merged into single longer snippets. Search terms are highlighted within snippets. The match count is displayed as a badge on each result.
 * **Persistence:** All derived artifacts (`index.bin`, `links.json`, `metadata.json`) are written to disk on two triggers: after each debounced batch of incremental updates completes, and on extension deactivation (exit). This ensures a VS Code crash loses at most one debounce window (~300ms) of work. The persisted `index.bin` allows sub-100ms startup for large notebooks (10,000+ notes).
@@ -143,7 +143,13 @@ Compromise is the pure-JS NLP library used for noun phrase extraction. Its behav
 4. **Filter — Minimum Length:** Single-character tokens and single-letter words are excluded.
 
 #### Matching
-Surviving noun phrases are matched **case-insensitively** against **note titles** (the file's basename without the `.md` extension, regardless of subdirectory path). If two files in different subdirectories share the same basename (e.g., `work/notes.md` and `personal/notes.md`), a matching noun phrase produces edges to both. Only titles are match targets — if a concept is important enough to be linked to, it should be its own note. This encourages atomic note-taking and produces fewer false positives.
+Surviving noun phrases are matched **case-insensitively** against **note titles** registered in the title index. Each file registers multiple title variants:
+* **Basename title:** The file's basename without the `.md` extension (e.g., `overview` for `overview.md`).
+* **Path-qualified title:** For files in subdirectories, the parent directory name followed by the basename (e.g., `work overview` for `work/overview.md`). Root-level files do not register a path-qualified title.
+
+This disambiguates files that share the same basename across different directories. A noun phrase like "work overview" matches only `work/overview.md`, not `personal/overview.md`. The unqualified basename "overview" still matches both, producing edges to both — which is correct when the source note mentions the concept generically.
+
+Only titles are match targets — if a concept is important enough to be linked to, it should be its own note. This encourages atomic note-taking and produces fewer false positives.
 
 A match produces an edge in the link graph. **Self-links are excluded** — a note's own title is not a valid match target for noun phrases extracted from that same note.
 

@@ -38,13 +38,14 @@ export class LinkGraphService {
 
   processCreate(notebookId: string, relativePath: string, content: string): void {
     const graph = this.getOrCreateGraph(notebookId);
-    const title = this.titleFromPath(relativePath);
 
-    // Register title
-    if (!graph.titleIndex.has(title)) {
-      graph.titleIndex.set(title, new Set());
+    // Register all title variants (basename + path-qualified)
+    for (const title of this.titlesFromPath(relativePath)) {
+      if (!graph.titleIndex.has(title)) {
+        graph.titleIndex.set(title, new Set());
+      }
+      graph.titleIndex.get(title)!.add(relativePath);
     }
-    graph.titleIndex.get(title)!.add(relativePath);
 
     // Extract noun phrases and cache them
     const extraction = this.nlpService.extractNounPhrases(content);
@@ -60,31 +61,40 @@ export class LinkGraphService {
       this.addEdge(graph, edge);
     }
 
-    // Reverse match: scan all other files' cached phrases for matches against this file's title
+    // Reverse match: scan all other files' cached phrases for matches against this file's titles
+    const titles = this.titlesFromPath(relativePath);
     for (const [otherPath, otherPhrases] of graph.phraseCache) {
       if (otherPath === relativePath) continue;
 
-      const matchCount = otherPhrases.get(title);
-      if (matchCount === undefined) continue;
+      // Check all title variants (basename, parent/basename)
+      let bestNoun: string | null = null;
+      let totalCount = 0;
+      let bestCount = 0;
+      for (const t of titles) {
+        const count = otherPhrases.get(t);
+        if (count !== undefined) {
+          totalCount += count;
+          if (count > bestCount) {
+            bestCount = count;
+            bestNoun = t;
+          }
+        }
+      }
+      if (!bestNoun) continue;
 
-      // Check if an edge already exists from the reverse-match source to this target
       const key = `${otherPath}::${relativePath}`;
       const existing = graph.edges.get(key);
       if (existing) {
-        // Title match may already be captured; ensure it's counted
-        // The existing edge was built from prior matchPhrasesAgainstTitles
-        // which would have already matched this title if available.
-        // This branch handles the case where the title was just registered.
-        existing.count += matchCount;
-        if (matchCount > (otherPhrases.get(existing.noun) ?? 0)) {
-          existing.noun = title;
+        existing.count += totalCount;
+        if (bestCount > (otherPhrases.get(existing.noun) ?? 0)) {
+          existing.noun = bestNoun;
         }
       } else {
         this.addEdge(graph, {
           source: otherPath,
           target: relativePath,
-          noun: title,
-          count: matchCount,
+          noun: bestNoun,
+          count: totalCount,
         });
       }
     }
@@ -113,7 +123,6 @@ export class LinkGraphService {
 
   processDelete(notebookId: string, relativePath: string): void {
     const graph = this.getOrCreateGraph(notebookId);
-    const title = this.titleFromPath(relativePath);
 
     // Remove all outbound edges from this file
     this.removeOutboundEdges(graph, relativePath);
@@ -121,13 +130,15 @@ export class LinkGraphService {
     // Remove all inbound edges pointing to this file
     this.removeInboundEdges(graph, relativePath);
 
-    // Remove from phrase cache and title index
+    // Remove from phrase cache and title index (all title variants)
     graph.phraseCache.delete(relativePath);
-    const pathsForTitle = graph.titleIndex.get(title);
-    if (pathsForTitle) {
-      pathsForTitle.delete(relativePath);
-      if (pathsForTitle.size === 0) {
-        graph.titleIndex.delete(title);
+    for (const title of this.titlesFromPath(relativePath)) {
+      const pathsForTitle = graph.titleIndex.get(title);
+      if (pathsForTitle) {
+        pathsForTitle.delete(relativePath);
+        if (pathsForTitle.size === 0) {
+          graph.titleIndex.delete(title);
+        }
       }
     }
   }
@@ -212,11 +223,12 @@ export class LinkGraphService {
 
   registerTitle(notebookId: string, relativePath: string): void {
     const graph = this.getOrCreateGraph(notebookId);
-    const title = this.titleFromPath(relativePath);
-    if (!graph.titleIndex.has(title)) {
-      graph.titleIndex.set(title, new Set());
+    for (const title of this.titlesFromPath(relativePath)) {
+      if (!graph.titleIndex.has(title)) {
+        graph.titleIndex.set(title, new Set());
+      }
+      graph.titleIndex.get(title)!.add(relativePath);
     }
-    graph.titleIndex.get(title)!.add(relativePath);
   }
 
   getInboundCount(notebookId: string, relativePath: string): number {
@@ -322,5 +334,21 @@ export class LinkGraphService {
 
   titleFromPath(relativePath: string): string {
     return path.basename(relativePath, '.md').toLowerCase();
+  }
+
+  /**
+   * Returns all title variants for a file path, used for titleIndex registration and matching.
+   * For "something/overview.md" returns ["overview", "something overview"].
+   * For root-level "overview.md" returns ["overview"].
+   */
+  private titlesFromPath(relativePath: string): string[] {
+    const basename = path.basename(relativePath, '.md').toLowerCase();
+    const dir = path.dirname(relativePath);
+    const titles = [basename];
+    if (dir && dir !== '.') {
+      const parentDir = path.basename(dir).toLowerCase();
+      titles.push(`${parentDir} ${basename}`);
+    }
+    return titles;
   }
 }
