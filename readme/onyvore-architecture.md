@@ -104,7 +104,6 @@ app-browser-onyvore
         │   ├── OutboundLinks.tsx          # Outbound link list (uses TreeItem)
         │   ├── InboundLinks.tsx           # Inbound link list (uses TreeItem)
         │   ├── SearchBar.tsx              # Omnipresent search with snippet previews (uses TreeItem)
-        │   ├── SearchOverlay.tsx          # (legacy — replaced by SearchBar, can be removed)
         │   ├── CollapsibleSection.tsx     # Reusable collapsible section with inverted-color header
         │   ├── TreeItem.tsx               # Shared tree item: label, sublabel, icon, badge, responsive
         │   ├── Icons.tsx                  # VS Code codicon wrappers (SearchIcon, FileIcon, etc.)
