@@ -1,4 +1,4 @@
-FROM node:22.18
+FROM --platform=linux/arm64 node:22.18
 
 ARG APP_DIST=""
 
