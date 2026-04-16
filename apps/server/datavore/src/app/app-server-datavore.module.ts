@@ -1,6 +1,4 @@
 import { Module, OnModuleDestroy } from '@nestjs/common';
-import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'path';
 import { AppController } from './controllers/app.controller';
 import { AppServerDatavoreConfig } from './app-server-datavore-config.class';
 import { DataSource } from 'typeorm';
@@ -14,12 +12,7 @@ const dbConfig = new AppServerDatavoreConfig();
 let dataSource: DataSource | null = null;
 
 @Module({
-  imports: [
-    ServeStaticModule.forRoot({
-      rootPath: join(__dirname, 'assets', 'ui'),
-      exclude: ['/api*'],
-    }),
-  ],
+  imports: [],
   controllers: [AppController, QueryController, TableController, TablesController],
   providers: [
     TableService,
