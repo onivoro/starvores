@@ -79,6 +79,66 @@ interface UploadProgressItem {
   status: 'uploading' | 'done' | 'error';
 }
 
+function renderPreviewContent(p: FilePreviewResponse, height: string) {
+  if (p.previewType === 'image' && p.presignedUrl) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <img
+          src={p.presignedUrl}
+          alt={p.fileName}
+          style={{ maxWidth: '100%', maxHeight: height, objectFit: 'contain' }}
+        />
+      </div>
+    );
+  }
+  if (p.previewType === 'text' && p.content != null) {
+    return (
+      <Editor
+        height={height}
+        language={getMonacoLanguage(p.fileName)}
+        value={p.content}
+        theme="vs-dark"
+        options={{
+          readOnly: true,
+          minimap: { enabled: false },
+          fontSize: 13,
+          scrollBeyondLastLine: false,
+          wordWrap: 'on',
+        }}
+      />
+    );
+  }
+  if (p.previewType === 'video' && p.presignedUrl) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <video src={p.presignedUrl} controls style={{ maxWidth: '100%', maxHeight: height }} />
+      </div>
+    );
+  }
+  if (p.previewType === 'audio' && p.presignedUrl) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}>
+        <audio src={p.presignedUrl} controls />
+      </div>
+    );
+  }
+  if (p.previewType === 'pdf' && p.presignedUrl) {
+    return (
+      <iframe
+        src={p.presignedUrl}
+        style={{ width: '100%', height, border: 'none' }}
+        title={p.fileName}
+      />
+    );
+  }
+  return (
+    <div className="bv-empty" style={{ padding: 24 }}>
+      <div className="bv-empty-icon">{getFileIcon(p.key)}</div>
+      <p>Preview not available</p>
+    </div>
+  );
+}
+
 // -- App --
 
 export function App() {
@@ -95,8 +155,23 @@ export function App() {
   const [showUpload, setShowUpload] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressItem[]>([]);
   const [preview, setPreview] = useState<FilePreviewResponse | null>(null);
+  const [pinnedPreviews, setPinnedPreviews] = useState<FilePreviewResponse[]>([]);
+  const [pinPanelWidth, setPinPanelWidth] = useState(420);
+  const [pinColumns, setPinColumns] = useState(1);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const pinPreview = useCallback((p: FilePreviewResponse) => {
+    setPinnedPreviews(prev => {
+      if (prev.some(pp => pp.key === p.key)) return prev;
+      return [...prev, p];
+    });
+    setPreview(null);
+  }, []);
+
+  const unpinPreview = useCallback((key: string) => {
+    setPinnedPreviews(prev => prev.filter(p => p.key !== key));
+  }, []);
 
   // -- Deep linking --
   const readUrlState = useCallback(() => {
@@ -313,7 +388,10 @@ export function App() {
 
   // -- Render --
   return (
-    <div className="bv-shell">
+    <div
+      className="bv-shell"
+      style={pinnedPreviews.length > 0 ? { gridTemplateColumns: `280px 1fr ${pinPanelWidth}px` } : undefined}
+    >
       {/* Sidebar */}
       <aside className="bv-sidebar">
         <div className="bv-sidebar-header">
@@ -478,6 +556,67 @@ export function App() {
         </div>
       </main>
 
+      {/* Pin Panel */}
+      {pinnedPreviews.length > 0 && (
+        <aside className="bv-pin-panel">
+          <div className="bv-pin-panel-header">
+            <div className="bv-btn-group">
+              {[320, 420, 560, 720].map(w => (
+                <button
+                  key={w}
+                  className={`bv-btn-group-item${pinPanelWidth === w ? ' is-active' : ''}`}
+                  onClick={() => setPinPanelWidth(w)}
+                >
+                  {w}
+                </button>
+              ))}
+            </div>
+            <div className="bv-btn-group">
+              {[1, 2, 3].map(c => (
+                <button
+                  key={c}
+                  className={`bv-btn-group-item${pinColumns === c ? ' is-active' : ''}`}
+                  onClick={() => setPinColumns(c)}
+                >
+                  {c}col
+                </button>
+              ))}
+            </div>
+          </div>
+          <div
+            className="bv-pin-grid"
+            style={{ gridTemplateColumns: `repeat(${pinColumns}, 1fr)` }}
+          >
+            {Array.from({ length: pinColumns }, (_, colIdx) => (
+              <div key={colIdx} className="bv-pin-column">
+                {pinnedPreviews
+                  .filter((_, i) => i % pinColumns === colIdx)
+                  .map(pin => (
+                    <div key={pin.key} className="bv-pin-card">
+                      <div className="bv-pin-card-header">
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {pin.fileName}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button className="bv-btn-icon" title="Download" onClick={() => handleDownload(pin.key)}>
+                            ⬇️
+                          </button>
+                          <button className="bv-btn-icon" title="Unpin" onClick={() => unpinPreview(pin.key)}>
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                      <div className="bv-pin-card-content">
+                        {renderPreviewContent(pin, '250px')}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            ))}
+          </div>
+        </aside>
+      )}
+
       {/* Upload Modal */}
       {showUpload && (
         <div className="bv-modal-backdrop" onClick={() => { if (uploadProgress.length === 0) setShowUpload(false); }}>
@@ -547,6 +686,7 @@ export function App() {
             <div className="bv-modal-header">
               <span className="bv-modal-title">{preview.fileName}</span>
               <div className="flex items-center gap-2">
+                <button className="bv-btn-ghost" onClick={() => pinPreview(preview)}>Pin</button>
                 <button className="bv-btn-ghost" onClick={() => handleDownload(preview.key)}>
                   Download
                 </button>
@@ -563,60 +703,7 @@ export function App() {
               )}
             </div>
             <div className="bv-preview-content">
-              {preview.previewType === 'image' && preview.presignedUrl && (
-                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                  <img
-                    src={preview.presignedUrl}
-                    alt={preview.fileName}
-                    style={{ maxWidth: '100%', maxHeight: '60vh', objectFit: 'contain' }}
-                  />
-                </div>
-              )}
-              {preview.previewType === 'text' && preview.content != null && (
-                <Editor
-                  height="60vh"
-                  language={getMonacoLanguage(preview.fileName)}
-                  value={preview.content}
-                  theme="vs-dark"
-                  options={{
-                    readOnly: true,
-                    minimap: { enabled: false },
-                    fontSize: 13,
-                    scrollBeyondLastLine: false,
-                    wordWrap: 'on',
-                  }}
-                />
-              )}
-              {preview.previewType === 'video' && preview.presignedUrl && (
-                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                  <video
-                    src={preview.presignedUrl}
-                    controls
-                    style={{ maxWidth: '100%', maxHeight: '60vh' }}
-                  />
-                </div>
-              )}
-              {preview.previewType === 'audio' && preview.presignedUrl && (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
-                  <audio src={preview.presignedUrl} controls />
-                </div>
-              )}
-              {preview.previewType === 'pdf' && preview.presignedUrl && (
-                <iframe
-                  src={preview.presignedUrl}
-                  style={{ width: '100%', height: '60vh', border: 'none' }}
-                  title={preview.fileName}
-                />
-              )}
-              {preview.previewType === 'none' && (
-                <div className="bv-empty">
-                  <div className="bv-empty-icon">{getFileIcon(preview.key)}</div>
-                  <p>Preview not available for this file type</p>
-                  <button className="bv-btn" onClick={() => handleDownload(preview.key)}>
-                    Download File
-                  </button>
-                </div>
-              )}
+              {renderPreviewContent(preview, '60vh')}
             </div>
           </div>
         </div>

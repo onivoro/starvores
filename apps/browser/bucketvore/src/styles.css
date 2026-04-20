@@ -364,6 +364,71 @@
     word-break: break-word;
   }
 
+  /* -- Pin panel -- */
+  .bv-pin-panel {
+    @apply bg-panel flex flex-col;
+    border-left: 1px solid var(--color-border-subtle);
+    overflow: hidden;
+  }
+  .bv-pin-panel-header {
+    @apply flex items-center justify-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-border);
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .bv-btn-group {
+    @apply flex items-center;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .bv-btn-group-item {
+    padding: 4px 10px;
+    font-size: 11px;
+    color: var(--color-subtle);
+    background: transparent;
+    border-right: 1px solid var(--color-border-subtle);
+    transition: all var(--duration-fast) var(--ease-out);
+  }
+  .bv-btn-group-item:last-child { border-right: none; }
+  .bv-btn-group-item:hover { color: var(--color-text); background: var(--color-muted); }
+  .bv-btn-group-item.is-active {
+    color: var(--color-accent);
+    background: var(--color-accent-muted);
+  }
+  .bv-pin-grid {
+    display: grid;
+    gap: 8px;
+    padding: 8px;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .bv-pin-column {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .bv-pin-card {
+    @apply rounded-md overflow-hidden;
+    border: 1px solid var(--color-border-subtle);
+    background: var(--color-muted);
+    flex-shrink: 0;
+  }
+  .bv-pin-card-header {
+    @apply flex items-center justify-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .bv-pin-card-content {
+    overflow: hidden;
+  }
+
   /* -- States -- */
   .bv-empty {
     @apply flex flex-col items-center justify-center;
@@ -407,7 +472,8 @@
 
   /* -- Responsive -- */
   @media (max-width: 768px) {
-    .bv-shell { grid-template-columns: 1fr; }
+    .bv-shell { grid-template-columns: 1fr !important; }
     .bv-sidebar { border-right: none; border-bottom: 1px solid var(--color-border-subtle); max-height: 40vh; }
+    .bv-pin-panel { display: none; }
   }
 }
