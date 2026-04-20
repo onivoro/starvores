@@ -1,0 +1,52 @@
+name: publish-bucketvore
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/server/bucketvore/package.json
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for version change
+        id: version_check
+        run: |
+          LOCAL=$(node -p "require('./apps/server/bucketvore/package.json').version")
+          PUBLISHED=$(npm view @onivoro/app-server-bucketvore version 2>/dev/null || echo "0.0.0")
+          echo "local=$LOCAL published=$PUBLISHED"
+          [ "$LOCAL" != "$PUBLISHED" ] && echo "changed=true" >> "$GITHUB_OUTPUT" || echo "changed=false" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: steps.version_check.outputs.changed == 'true'
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        if: steps.version_check.outputs.changed == 'true'
+        run: npm ci
+
+      - name: Build and publish
+        if: steps.version_check.outputs.changed == 'true'
+        run: npx nx run app-server-bucketvore:deploy-fullstack
+        env:
+          NPM_CONFIG_PROVENANCE: true
+          NODE_ENV: production
+
+      - name: Tag release
+        if: steps.version_check.outputs.changed == 'true'
+        run: |
+          VERSION=$(node -p "require('./apps/server/bucketvore/package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "bucketvore-v${VERSION}"
+          git push origin "bucketvore-v${VERSION}"

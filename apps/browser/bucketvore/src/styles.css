@@ -1,0 +1,413 @@
+@import './styles/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { @apply border-border; }
+
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-size: 14px;
+    line-height: 1.5;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  ::selection {
+    background: var(--color-accent-muted);
+    color: var(--color-accent);
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-subtle);
+  }
+}
+
+@layer components {
+  /* -- Shell layout -- */
+  .bv-shell {
+    @apply h-screen grid;
+    grid-template-columns: 280px 1fr;
+  }
+
+  /* -- Sidebar -- */
+  .bv-sidebar {
+    @apply bg-panel overflow-hidden flex flex-col;
+    border-right: 1px solid var(--color-border-subtle);
+  }
+  .bv-sidebar-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .bv-sidebar-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--color-text);
+  }
+  .bv-sidebar-subtitle {
+    font-size: 12px;
+    color: var(--color-subtle);
+    margin-top: 2px;
+  }
+  .bv-sidebar-search {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+  .bv-bucket-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .bv-bucket-item {
+    @apply flex items-center rounded-md;
+    gap: 12px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: all var(--duration-fast) var(--ease-out);
+  }
+  .bv-bucket-item:hover {
+    background: var(--color-muted);
+  }
+  .bv-bucket-item.is-active {
+    background: var(--color-muted);
+    color: var(--color-accent);
+  }
+  .bv-bucket-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+  .bv-bucket-name {
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* -- Main content -- */
+  .bv-main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  /* -- Toolbar -- */
+  .bv-toolbar {
+    @apply flex items-center justify-between;
+    padding: 12px 20px;
+    background: var(--color-panel);
+    border-bottom: 1px solid var(--color-border);
+    gap: 12px;
+  }
+  .bv-toolbar-left {
+    @apply flex items-center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+  }
+  .bv-toolbar-actions {
+    @apply flex items-center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  /* -- Breadcrumbs -- */
+  .bv-breadcrumbs {
+    @apply flex items-center;
+    gap: 4px;
+    font-size: 13px;
+  }
+  .bv-breadcrumb {
+    @apply rounded;
+    padding: 4px 8px;
+    color: var(--color-subtle);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all var(--duration-fast) var(--ease-out);
+  }
+  .bv-breadcrumb:hover {
+    color: var(--color-text);
+    background: var(--color-muted);
+  }
+  .bv-breadcrumb-sep {
+    color: var(--color-faint);
+    font-size: 12px;
+  }
+
+  /* -- File explorer -- */
+  .bv-file-explorer {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .bv-file-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .bv-file-item {
+    @apply flex items-center rounded-md;
+    gap: 12px;
+    padding: 10px 16px;
+    background: var(--color-panel);
+    border: 1px solid var(--color-border-subtle);
+    transition: all var(--duration-fast) var(--ease-out);
+  }
+  .bv-file-item:hover {
+    background: var(--color-muted);
+    border-color: var(--color-border);
+  }
+  .bv-file-item.is-folder {
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .bv-file-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+  .bv-file-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .bv-file-name {
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .bv-file-meta {
+    font-size: 12px;
+    color: var(--color-subtle);
+    margin-top: 2px;
+  }
+  .bv-file-actions {
+    @apply flex items-center;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-out);
+  }
+  .bv-file-item:hover .bv-file-actions {
+    opacity: 1;
+  }
+
+  /* -- Buttons -- */
+  .bv-btn {
+    @apply rounded-md text-sm font-medium;
+    padding: 6px 14px;
+    background: var(--color-accent);
+    color: #fff;
+    transition: all var(--duration-fast) var(--ease-out);
+  }
+  .bv-btn:hover { background: var(--color-accent-hover); }
+  .bv-btn:disabled { opacity: 0.4; cursor: default; }
+
+  .bv-btn-ghost {
+    @apply rounded-md text-sm;
+    padding: 6px 12px;
+    background: transparent;
+    color: var(--color-subtle);
+    border: 1px solid transparent;
+    transition: all var(--duration-fast) var(--ease-out);
+  }
+  .bv-btn-ghost:hover {
+    color: var(--color-text);
+    background: var(--color-muted);
+  }
+
+  .bv-btn-danger {
+    @apply rounded-md text-sm font-medium;
+    padding: 6px 14px;
+    background: var(--color-danger);
+    color: #fff;
+    transition: all var(--duration-fast) var(--ease-out);
+  }
+  .bv-btn-danger:hover { filter: brightness(1.1); }
+
+  .bv-btn-icon {
+    @apply rounded-md;
+    padding: 6px 8px;
+    background: transparent;
+    color: var(--color-subtle);
+    transition: all var(--duration-fast) var(--ease-out);
+  }
+  .bv-btn-icon:hover {
+    color: var(--color-text);
+    background: var(--color-muted);
+  }
+
+  /* -- Inputs -- */
+  .bv-input {
+    @apply w-full rounded-md text-sm;
+    background: var(--color-muted);
+    border: 1px solid var(--color-border-subtle);
+    padding: 7px 10px;
+    color: var(--color-text);
+    transition: border-color var(--duration-fast) var(--ease-out);
+  }
+  .bv-input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 1px var(--color-accent-muted);
+  }
+  .bv-input::placeholder { color: var(--color-faint); }
+
+  /* -- Modals -- */
+  .bv-modal-backdrop {
+    @apply fixed inset-0 z-40 flex items-center justify-center p-4;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+  }
+  .bv-modal {
+    @apply w-full rounded-lg;
+    background: var(--color-panel);
+    border: 1px solid var(--color-border);
+    box-shadow: var(--shadow-popover);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .bv-modal-header {
+    @apply flex items-center justify-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .bv-modal-title {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .bv-modal-body {
+    padding: 20px;
+    overflow: auto;
+    flex: 1;
+  }
+  .bv-modal-footer {
+    @apply flex items-center justify-end;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--color-border);
+  }
+
+  /* -- Upload zone -- */
+  .bv-upload-zone {
+    border: 2px dashed var(--color-border);
+    @apply rounded-lg;
+    padding: 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all var(--duration-fast) var(--ease-out);
+  }
+  .bv-upload-zone:hover,
+  .bv-upload-zone.is-dragover {
+    border-color: var(--color-accent);
+    background: var(--color-accent-muted);
+  }
+  .bv-upload-icon {
+    font-size: 48px;
+    margin-bottom: 12px;
+  }
+  .bv-upload-progress {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .bv-upload-item {
+    @apply flex items-center justify-between rounded-md;
+    padding: 8px 12px;
+    background: var(--color-muted);
+    font-size: 13px;
+  }
+
+  /* -- Preview -- */
+  .bv-preview-meta {
+    padding: 12px 20px;
+    background: var(--color-muted);
+    font-size: 12px;
+    color: var(--color-subtle);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .bv-preview-content {
+    padding: 20px;
+    overflow: auto;
+    max-height: 70vh;
+  }
+  .bv-preview-text pre {
+    background: var(--color-muted);
+    border: 1px solid var(--color-border-subtle);
+    @apply rounded-md;
+    padding: 16px;
+    overflow: auto;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* -- States -- */
+  .bv-empty {
+    @apply flex flex-col items-center justify-center;
+    gap: 12px;
+    padding: 48px;
+    color: var(--color-subtle);
+    text-align: center;
+  }
+  .bv-empty-icon {
+    font-size: 48px;
+    opacity: 0.5;
+  }
+
+  .bv-loading {
+    @apply flex flex-col items-center justify-center;
+    gap: 12px;
+    padding: 48px;
+    color: var(--color-subtle);
+  }
+  .bv-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--color-border);
+    border-top-color: var(--color-accent);
+    border-radius: 50%;
+    animation: bv-spin 1s linear infinite;
+  }
+  @keyframes bv-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .bv-error {
+    @apply flex items-center rounded-md;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--color-danger-muted);
+    border: 1px solid var(--color-danger);
+    color: var(--color-danger);
+    font-size: 13px;
+  }
+
+  /* -- Responsive -- */
+  @media (max-width: 768px) {
+    .bv-shell { grid-template-columns: 1fr; }
+    .bv-sidebar { border-right: none; border-bottom: 1px solid var(--color-border-subtle); max-height: 40vh; }
+  }
+}

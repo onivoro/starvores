@@ -1,0 +1,19 @@
+{
+  "name": "lib-axios-bucketvore",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "libs/axios/bucketvore/src",
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/axios/bucketvore",
+        "main": "libs/axios/bucketvore/src/index.ts",
+        "tsConfig": "libs/axios/bucketvore/tsconfig.lib.json",
+        "assets": []
+      }
+    }
+  },
+  "tags": []
+}

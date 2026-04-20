@@ -21,6 +21,7 @@
       "@onivoro/isomorphic-axios": ["libs/isomorphic/axios/src/index.ts"],
       "@onivoro/isomorphic-common": ["libs/isomorphic/common/src/index.ts"],
       "@onivoro/isomorphic-fhir": ["libs/isomorphic/fhir/src/index.ts"],
+      "@onivoro/axios-bucketvore": ["libs/axios/bucketvore/src/index.ts"],
       "@onivoro/axios-datavore": ["libs/axios/datavore/src/index.ts"],
       "@onivoro/server-auth": ["libs/server/auth/src/index.ts"],
       "@onivoro/server-aws-cloudwatch": [

@@ -1,0 +1,64 @@
+{
+  "name": "app-server-bucketvore",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/server/bucketvore/src",
+  "projectType": "application",
+  "targets": {
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "dependsOn": ["app-browser-bucketvore:build"],
+      "options": {
+        "outputPath": "dist/apps/server/bucketvore",
+        "webpackConfig": "apps/server/bucketvore/webpack.config.js",
+        "assets": ["apps/server/bucketvore/src/assets"]
+      },
+      "configurations": {
+        "development": {
+          "mode": "development"
+        },
+        "production": {
+          "mode": "production"
+        }
+      }
+    },
+    "serve": {
+      "continuous": true,
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "dependsOn": ["build"],
+      "options": {
+        "buildTarget": "app-server-bucketvore:build",
+        "runBuildTargetDependencies": false
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "app-server-bucketvore:build:development"
+        },
+        "production": {
+          "buildTarget": "app-server-bucketvore:build:production"
+        }
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "apps/server/bucketvore/jest.config.ts"
+      }
+    },
+    "nx-release-publish": {
+      "executor": "@nx/js:release-publish",
+      "options": {
+        "packageRoot": "dist/apps/server/bucketvore"
+      }
+    },
+    "deploy-fullstack": {
+      "executor": "@onivoro/onix:deploy-fullstack",
+      "options": {
+        "ui": "app-browser-bucketvore"
+      }
+    }
+  },
+  "tags": []
+}
