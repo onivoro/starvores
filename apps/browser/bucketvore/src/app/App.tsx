@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import Editor from '@monaco-editor/react';
 import {
   createBucketvoreApi,
   BucketInfo,
@@ -45,6 +46,25 @@ function formatFileSize(bytes?: number): string {
   let i = 0;
   while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
   return `${size.toFixed(2)} ${units[i]}`;
+}
+
+const MONACO_LANGUAGES: Record<string, string> = {
+  ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
+  json: 'json', html: 'html', css: 'css', scss: 'scss', xml: 'xml',
+  md: 'markdown', yaml: 'yaml', yml: 'yaml',
+  py: 'python', java: 'java', c: 'c', cpp: 'cpp', h: 'c',
+  go: 'go', rs: 'rust', sh: 'shell', bash: 'shell',
+  sql: 'sql', graphql: 'graphql', dockerfile: 'dockerfile',
+  rb: 'ruby', php: 'php', swift: 'swift', kt: 'kotlin',
+  r: 'r', lua: 'lua', perl: 'perl', pl: 'perl',
+  toml: 'ini', ini: 'ini', conf: 'ini', cfg: 'ini',
+  csv: 'plaintext', log: 'plaintext', txt: 'plaintext',
+  env: 'plaintext', gitignore: 'plaintext',
+};
+
+function getMonacoLanguage(fileName: string): string {
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+  return MONACO_LANGUAGES[ext] || 'plaintext';
 }
 
 function formatDate(iso?: string): string {
@@ -553,9 +573,19 @@ export function App() {
                 </div>
               )}
               {preview.previewType === 'text' && preview.content != null && (
-                <div className="bv-preview-text">
-                  <pre>{preview.content}</pre>
-                </div>
+                <Editor
+                  height="60vh"
+                  language={getMonacoLanguage(preview.fileName)}
+                  value={preview.content}
+                  theme="vs-dark"
+                  options={{
+                    readOnly: true,
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    scrollBeyondLastLine: false,
+                    wordWrap: 'on',
+                  }}
+                />
               )}
               {preview.previewType === 'video' && preview.presignedUrl && (
                 <div style={{ display: 'flex', justifyContent: 'center' }}>

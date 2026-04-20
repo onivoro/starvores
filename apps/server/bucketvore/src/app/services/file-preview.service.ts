@@ -7,6 +7,13 @@ export class FilePreviewService {
   private readonly videoExtensions = ['mp4', 'webm', 'ogg', 'mov'];
   private readonly audioExtensions = ['mp3', 'wav', 'ogg', 'flac'];
   private readonly pdfExtensions = ['pdf'];
+  private readonly binaryExtensions = [
+    'zip', 'tar', 'gz', 'rar', '7z', 'bz2', 'xz',
+    'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+    'exe', 'dll', 'so', 'dylib', 'bin',
+    'dmg', 'iso', 'img',
+    'class', 'pyc', 'o', 'a', 'lib', 'wasm',
+  ];
 
   canPreview(extension: string): boolean {
     const ext = extension.toLowerCase();
@@ -45,8 +52,9 @@ export class FilePreviewService {
     if (this.isVideo(ext)) return 'video';
     if (this.isAudio(ext)) return 'audio';
     if (this.isPdf(ext)) return 'pdf';
+    if (this.binaryExtensions.includes(ext)) return 'none';
 
-    return 'none';
+    return 'text';
   }
 
   getFileIcon(extension: string): string {
@@ -65,7 +73,7 @@ export class FilePreviewService {
     return '📎';
   }
 
-  async generateTextPreview(content: Uint8Array, maxLength: number = 10000): Promise<string> {
+  async generateTextPreview(content: Uint8Array, maxLength: number = 1_000_000): Promise<string> {
     const decoder = new TextDecoder('utf-8');
     const text = decoder.decode(content);
 
