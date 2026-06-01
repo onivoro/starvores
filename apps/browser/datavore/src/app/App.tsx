@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import Editor from '@monaco-editor/react';
+import jsonata from 'jsonata';
 import {
   createDatavoreApi,
   DatabaseInfo,
@@ -240,6 +241,20 @@ type ExportState = {
   message?: string;
 };
 
+type JsonCellModalState = {
+  value: unknown;
+  column: string;
+  rowIndex?: number;
+} | null;
+
+type JsonataErrorInfo = {
+  message: string;
+  code?: string;
+  position?: number;
+  token?: string;
+  value?: string;
+};
+
 type SidebarNavItem = {
   id: string;
   type: 'sql' | 'table';
@@ -352,6 +367,7 @@ export function App() {
   const [exportCustomLimit, setExportCustomLimit] = useState('250000');
   const [includeMetadataHeader, setIncludeMetadataHeader] = useState(false);
   const [exportState, setExportState] = useState<ExportState>(DEFAULT_EXPORT_STATE);
+  const [jsonCellModal, setJsonCellModal] = useState<JsonCellModalState>(null);
 
   /* ── Command palette ── */
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -1795,6 +1811,13 @@ export function App() {
           </section>
         )}
 
+        {jsonCellModal && (
+          <JsonataModal
+            cell={jsonCellModal}
+            onClose={() => setJsonCellModal(null)}
+          />
+        )}
+
         {/* ── SQL View ── */}
         {activeView === 'sql' ? (
           <div className="dv-sql-workbench">
@@ -1939,6 +1962,7 @@ export function App() {
                   resultError={resultError}
                   result={result}
                   emptyMessage="Run a query to view results."
+                  onOpenJsonCell={(value, column, rowIndex) => setJsonCellModal({ value, column, rowIndex })}
                 />
               </section>
             </div>
@@ -2003,6 +2027,7 @@ export function App() {
                   executing={executing}
                   resultError={resultError}
                   result={result}
+                  onOpenJsonCell={(value, column, rowIndex) => setJsonCellModal({ value, column, rowIndex })}
                   />
               </section>
             )}
@@ -2084,6 +2109,7 @@ export function App() {
                       onDeleteRow={deleteRow}
                       fkMap={foreignKeyMap}
                       onFkNavigate={navigateToFk}
+                      onOpenJsonCell={(value, column, rowIndex) => setJsonCellModal({ value, column, rowIndex })}
                     />
 
                     {/* Pagination */}
@@ -2177,16 +2203,18 @@ function QueryResultDisplay({
   resultError,
   result,
   emptyMessage,
+  onOpenJsonCell,
 }: {
   executing: boolean;
   resultError: string | null;
   result: ResultState | null;
   emptyMessage?: string;
+  onOpenJsonCell?: (value: unknown, column: string, rowIndex: number) => void;
 }) {
   if (executing) return <p className="dv-empty">Executing query...</p>;
   if (resultError) return <p className="text-danger text-sm">{resultError}</p>;
   if (result?.error) return <p className="text-danger text-sm">{result.error}</p>;
-  if (result) return <DataTable rows={result.rows} rowCount={result.rowCount} sortable />;
+  if (result) return <DataTable rows={result.rows} rowCount={result.rowCount} sortable onOpenJsonCell={onOpenJsonCell} />;
   if (emptyMessage) return <p className="dv-empty">{emptyMessage}</p>;
   return null;
 }
@@ -2329,6 +2357,7 @@ function DataTable({
   onDeleteRow,
   fkMap,
   onFkNavigate,
+  onOpenJsonCell,
 }: {
   rows: Record<string, unknown>[];
   rowCount?: number;
@@ -2345,6 +2374,7 @@ function DataTable({
   onDeleteRow?: (rowIndex: number) => Promise<void>;
   fkMap?: Map<string, { table: string; column: string }>;
   onFkNavigate?: (table: string, column: string, value: unknown) => void;
+  onOpenJsonCell?: (value: unknown, column: string, rowIndex: number) => void;
 }) {
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
@@ -2511,10 +2541,10 @@ function DataTable({
                         >
                           {fk && cellValue !== null && cellValue !== undefined && onFkNavigate ? (
                             <span className="dv-fk-link" onClick={(e) => { e.stopPropagation(); onFkNavigate(fk.table, fk.column, cellValue); }}>
-                              {renderCell(cellValue)}
+                              {renderCell(cellValue, column, idx, onOpenJsonCell)}
                             </span>
                           ) : (
-                            renderCell(cellValue)
+                            renderCell(cellValue, column, idx, onOpenJsonCell)
                           )}
                         </td>
                       );
@@ -2542,13 +2572,13 @@ function DataTable({
                   <div key={column} className="dv-row-drawer-item">
                     <dt>{column} {fk && <span className="text-accent text-xs">FK → {fk.table}</span>}</dt>
                     <dd>
-                      {fk && val !== null && val !== undefined && onFkNavigate ? (
-                        <span className="dv-fk-link" onClick={() => onFkNavigate(fk.table, fk.column, val)}>
-                          {renderCell(val)}
-                        </span>
-                      ) : (
-                        renderCell(val)
-                      )}
+                          {fk && val !== null && val !== undefined && onFkNavigate ? (
+                            <span className="dv-fk-link" onClick={() => onFkNavigate(fk.table, fk.column, val)}>
+                              {renderCell(val, column, selectedRowIndex ?? 0, onOpenJsonCell)}
+                            </span>
+                          ) : (
+                            renderCell(val, column, selectedRowIndex ?? 0, onOpenJsonCell)
+                          )}
                     </dd>
                   </div>
                 );
@@ -2627,9 +2657,170 @@ function formatCellValue(value: unknown): string {
   return String(value);
 }
 
-function renderCell(value: unknown) {
+function getJsonCellValue(value: unknown): unknown | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+  if (!trimmed || !/^[\[{]/.test(trimmed)) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+function formatJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatJsonataError(err: unknown): JsonataErrorInfo {
+  if (!err || typeof err !== 'object') {
+    return { message: 'JSONata evaluation failed.' };
+  }
+
+  const details = err as Record<string, unknown>;
+  const message = details.message;
+
+  return {
+    message: typeof message === 'string' && message ? message : 'JSONata evaluation failed.',
+    code: typeof details.code === 'string' ? details.code : undefined,
+    position: typeof details.position === 'number' ? details.position : undefined,
+    token: typeof details.token === 'string' ? details.token : undefined,
+    value: details.value === undefined ? undefined : formatJson(details.value),
+  };
+}
+
+function renderCell(
+  value: unknown,
+  column?: string,
+  rowIndex?: number,
+  onOpenJsonCell?: (value: unknown, column: string, rowIndex: number) => void,
+) {
   if (value === null || value === undefined) return <span className="dv-cell-null">NULL</span>;
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
-  if (typeof value === 'object') return JSON.stringify(value);
+  const jsonValue = getJsonCellValue(value);
+  if (jsonValue && column !== undefined && rowIndex !== undefined && onOpenJsonCell) {
+    const label = Array.isArray(jsonValue) ? `JSON array (${jsonValue.length})` : 'JSON object';
+    return (
+      <button
+        className="dv-json-cell-btn"
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpenJsonCell(jsonValue, column, rowIndex);
+        }}
+        title="Open JSONata editor"
+      >
+        <span>{label}</span>
+        <small>JSONata</small>
+      </button>
+    );
+  }
+  if (jsonValue) return formatJson(jsonValue);
   return String(value);
+}
+
+function JsonataModal({ cell, onClose }: { cell: NonNullable<JsonCellModalState>; onClose: () => void }) {
+  const jsonValue = useMemo(() => getJsonCellValue(cell.value) ?? cell.value, [cell.value]);
+  const [expression, setExpression] = useState('$');
+  const [output, setOutput] = useState(formatJson(jsonValue));
+  const [error, setError] = useState<JsonataErrorInfo | null>(null);
+
+  const evaluateExpression = useCallback(async () => {
+    try {
+      setError(null);
+      const result = await jsonata(expression || '$').evaluate(jsonValue);
+      setOutput(formatJson(result));
+    } catch (err) {
+      setError(formatJsonataError(err));
+    }
+  }, [expression, jsonValue]);
+
+  useEffect(() => {
+    void evaluateExpression();
+  }, [evaluateExpression]);
+
+  return (
+    <section className="dv-modal-backdrop" role="dialog" aria-modal="true" aria-label="JSONata editor">
+      <div className="dv-modal dv-jsonata-modal">
+        <div className="dv-query-toolbar">
+          <div className="dv-section-head">
+            <h2 className="dv-section-title">JSONata Editor</h2>
+            <p className="dv-section-meta">
+              {cell.column}{cell.rowIndex !== undefined ? ` · row ${cell.rowIndex + 1}` : ''}
+            </p>
+          </div>
+          <button className="dv-btn-ghost" onClick={onClose}>Close</button>
+        </div>
+
+        <label className="dv-modal-field">
+          JSONata expression
+          <textarea
+            className="dv-input dv-jsonata-expression"
+            value={expression}
+            onChange={(event) => setExpression(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault();
+                void evaluateExpression();
+              }
+            }}
+            spellCheck={false}
+          />
+        </label>
+
+        {error && (
+          <div className="dv-jsonata-error" role="alert">
+            <p className="dv-state-text text-danger">{error.message}</p>
+            {(error.code || error.position !== undefined || error.token || error.value) && (
+              <dl>
+                {error.code && <><dt>Code</dt><dd>{error.code}</dd></>}
+                {error.position !== undefined && <><dt>Position</dt><dd>{error.position}</dd></>}
+                {error.token && <><dt>Token</dt><dd>{error.token}</dd></>}
+                {error.value && <><dt>Value</dt><dd>{error.value}</dd></>}
+              </dl>
+            )}
+          </div>
+        )}
+
+        <div className="dv-jsonata-grid">
+          <section>
+            <div className="dv-pane-header">
+              <h3 className="dv-section-title">Input JSON</h3>
+            </div>
+            <Editor
+              height="360px"
+              defaultLanguage="json"
+              value={formatJson(jsonValue)}
+              theme="vs-dark"
+              options={{ readOnly: true, minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false }}
+            />
+          </section>
+          <section>
+            <div className="dv-pane-header">
+              <h3 className="dv-section-title">JSONata Result</h3>
+              <button className="dv-btn-ghost dv-btn-sm" onClick={() => void navigator.clipboard.writeText(output)}>Copy</button>
+            </div>
+            <Editor
+              height="360px"
+              defaultLanguage="json"
+              value={output}
+              theme="vs-dark"
+              options={{ readOnly: true, minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false }}
+            />
+          </section>
+        </div>
+
+        <div className="dv-modal-actions">
+          <button className="dv-btn-ghost" onClick={() => setExpression('$')}>Reset</button>
+          <span className="dv-section-meta">Expression evaluates as you type.</span>
+        </div>
+      </div>
+    </section>
+  );
 }
