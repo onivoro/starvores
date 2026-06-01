@@ -20,6 +20,19 @@ npm install @onivoro/app-server-datavore
 npx datavore
 ```
 
+```bash
+# MySQL example
+export DV_TYPE=mysql
+export DV_HOST=localhost
+export DV_PORT=3306
+export DV_DB=mydatabase
+export DV_USER=myuser
+export DV_PASSWORD=mypassword
+export PORT=3333
+
+npx datavore
+```
+
 ### Programmatic Usage
 
 ```javascript
@@ -68,6 +81,7 @@ DataVore provides the following RESTful endpoints:
 
 ### Database Information
 - `GET /api/tables/debug/info` - Returns database connection information
+- `GET /api/tables/schema` - Discovers schema objects such as views, routines/functions, and sequences when supported by the database
 
 ### Table Operations
 - `GET /api/tables` - Lists all tables in the connected database

@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Response } from 'express';
 import { once } from 'events';
 import { DataSource, QueryRunner } from 'typeorm';
-import { DatabaseInfo, DatabaseSchemaService, TableStructureInfo } from './database-schema.service';
+import { DatabaseInfo, DatabaseSchemaObjects, DatabaseSchemaService, TableStructureInfo } from './database-schema.service';
 
 interface ActiveQueryExecution {
   cancel: () => Promise<void>;
@@ -88,6 +88,10 @@ export class TableService {
 
   async getTables(dataSource: DataSource): Promise<{ tableName: string }[]> {
     return this.databaseSchemaService.getTables(dataSource);
+  }
+
+  async getSchemaObjects(dataSource: DataSource): Promise<DatabaseSchemaObjects> {
+    return this.databaseSchemaService.getSchemaObjects(dataSource);
   }
 
   async getTableData(dataSource: DataSource, tableName: string): Promise<any[]> {

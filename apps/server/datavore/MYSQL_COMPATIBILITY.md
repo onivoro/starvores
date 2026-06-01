@@ -17,16 +17,24 @@ The datavore application has been updated to support both PostgreSQL and MySQL d
    - **PostgreSQL**: Queries `information_schema` with `table_schema = 'public'`
    - **MySQL**: Queries `information_schema` with `table_schema = DATABASE()`
 
+4. **Schema Object Discovery**:
+   - **PostgreSQL**: Discovers views, routines/functions, and sequences
+   - **MySQL**: Discovers views and routines/functions from the active database and skips unsupported sequences
+
 ### Modified Files
 
+- `apps/server/datavore/src/app/services/database-schema.service.ts`: Database-specific schema discovery queries
 - `apps/server/datavore/src/app/services/table.service.ts`: Main service with database-agnostic logic
 - `apps/server/datavore/src/app/controllers/tables.controller.ts`: Added debug endpoint
+- `libs/axios/datavore/src/lib/api.ts`: Client method for schema discovery
+- `apps/browser/datavore/src/app/App.tsx`: Sidebar schema discovery uses the server endpoint
 
 ### New Features
 
 1. **Database Info Endpoint**: `GET /api/tables/debug/info` returns database type and connection status
-2. **Enhanced Error Handling**: Better error messages with database type context
-3. **Logging**: Added console logging for debugging database operations
+2. **Schema Discovery Endpoint**: `GET /api/tables/schema` returns discovered views, functions/routines, and sequences where supported
+3. **Enhanced Error Handling**: Better error messages with database type context
+4. **Logging**: Added console logging for debugging database operations
 
 ### Supported Operations
 
@@ -39,6 +47,7 @@ The datavore application has been updated to support both PostgreSQL and MySQL d
 - List tables
 - Show table data
 - Display table structure (columns, primary keys, foreign keys, indices)
+- Discover schema objects (views and routines/functions)
 
 ⚠️ **Other Databases**:
 - Basic table listing and data display

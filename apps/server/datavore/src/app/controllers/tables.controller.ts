@@ -14,6 +14,11 @@ export class TablesController {
     return await this.tableService.getTables(this.dataSource);
   }
 
+  @Get('schema')
+  async getSchemaObjects() {
+    return await this.tableService.getSchemaObjects(this.dataSource);
+  }
+
   @Get('debug/info')
   async getDatabaseInfo() {
     return await this.tableService.getDatabaseInfo(this.dataSource);

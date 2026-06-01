@@ -123,6 +123,6 @@
         "commitMessage": "chore(release): v{version}"
       }
     },
-    "projects": ["lib-server-*", "lib-isomorphic-*", "app-server-datavore", "app-server-bucketvore"]
+    "projects": ["lib-server-*", "lib-isomorphic-*", "app-server-datavore", "app-server-bucketvore", "app-server-mcp"]
   }
 }

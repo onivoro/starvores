@@ -4,6 +4,18 @@ export interface TableInfo {
   tableName: string;
 }
 
+export interface SchemaObjectInfo {
+  name: string;
+  schema: string;
+  type?: string;
+}
+
+export interface DatabaseSchemaObjects {
+  views: SchemaObjectInfo[];
+  functions: SchemaObjectInfo[];
+  sequences: SchemaObjectInfo[];
+}
+
 export interface TableStructureInfo {
   columns: Array<{ columnName: string; dataType: string; isNullable: string; columnDefault: string | null }>;
   primaryKeys: Array<{ columnName: string }>;
@@ -51,6 +63,10 @@ export class DatavoreApi {
 
   getTables() {
     return this.http.get<TableInfo[]>('/api/tables');
+  }
+
+  getSchemaObjects() {
+    return this.http.get<DatabaseSchemaObjects>('/api/tables/schema');
   }
 
   getTableData(tableName: string) {

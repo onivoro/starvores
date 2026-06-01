@@ -1,31 +1,27 @@
 {
-  "name": "@onivoro/app-server-datavore",
-  "version": "24.34.6",
-  "description": "DataVore NestJS application for data processing and management",
+  "name": "@onivoro/app-server-mcp",
+  "version": "24.38.2",
+  "description": "StarVores stdio MCP server",
   "license": "MIT",
   "type": "commonjs",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "bin": {
-    "datavore": "main.js"
+    "starvores-mcp": "main.js"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/onivoro/starvores.git"
   },
   "keywords": [
+    "mcp",
+    "stdio",
     "nestjs",
-    "data",
-    "processing",
     "server",
     "onivoro"
   ],
   "engines": {
-    "node": ">=18.0.0"
-  },
-  "dependencies": {
-    "mysql2": "^3.22.4",
-    "sqlite3": "^5.1.7"
+    "node": ">=22.16.0"
   },
   "publishConfig": {
     "access": "public"

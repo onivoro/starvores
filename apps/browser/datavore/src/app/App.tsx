@@ -13,6 +13,7 @@ import {
   createDatavoreApi,
   DatabaseInfo,
   QueryJsonlExportError,
+  SchemaObjectInfo,
   TableInfo,
   TableStructureInfo,
 } from '@onivoro/axios-datavore';
@@ -136,6 +137,9 @@ const buildFilterClause = (col: string, val: string): string => {
   if (activeDbType === 'mysql') {
     return `CAST(${quoteIdentifier(col)} AS CHAR) LIKE '%${escaped}%'`;
   }
+  if (activeDbType === 'sqlite') {
+    return `CAST(${quoteIdentifier(col)} AS TEXT) LIKE '%${escaped}%'`;
+  }
   return `${quoteIdentifier(col)}::text ILIKE '%${escaped}%'`;
 };
 
@@ -215,7 +219,7 @@ type SidebarView = 'sql' | 'table';
 type ExportStatus = 'idle' | 'preparing' | 'streaming' | 'completed' | 'cancelled' | 'failed';
 type ExportLimitMode = 'none' | '10k' | '100k' | 'custom';
 type SortState = { column: string; direction: 'asc' | 'desc' } | null;
-type SchemaObject = { name: string; schema: string; type?: string };
+type SchemaObject = SchemaObjectInfo;
 type SidebarSchemaSection = 'tables' | 'views' | 'functions' | 'sequences';
 
 type CommandActionId =
@@ -247,40 +251,6 @@ const DEFAULT_QUERY = 'SELECT * FROM table_name LIMIT 100;';
 const QUERY_STORAGE_PREFIX = 'datavore-query';
 const DEFAULT_PAGE_SIZE = 100;
 const PAGE_SIZES = [25, 50, 100, 250, 500, 1000];
-
-const getSchemaViewsQuery = (dbType: DbType): string => {
-  if (dbType === 'mysql') {
-    return `SELECT table_name as name, table_schema as \`schema\`
-FROM information_schema.views
-WHERE table_schema = DATABASE()
-ORDER BY table_name`;
-  }
-  return `SELECT table_name as name, table_schema as schema
-FROM information_schema.views
-WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-ORDER BY table_name`;
-};
-
-const getSchemaFunctionsQuery = (dbType: DbType): string => {
-  if (dbType === 'mysql') {
-    return `SELECT routine_name as name, routine_schema as \`schema\`, routine_type as type
-FROM information_schema.routines
-WHERE routine_schema = DATABASE()
-ORDER BY routine_name`;
-  }
-  return `SELECT routine_name as name, routine_schema as schema, routine_type as type
-FROM information_schema.routines
-WHERE routine_schema NOT IN ('pg_catalog', 'information_schema')
-ORDER BY routine_name`;
-};
-
-const getSchemaSequencesQuery = (dbType: DbType): string | null => {
-  if (dbType === 'mysql') return null; // MySQL has no sequences (before 8.0 has none in info_schema)
-  return `SELECT sequence_name as name, sequence_schema as schema
-FROM information_schema.sequences
-WHERE sequence_schema NOT IN ('pg_catalog', 'information_schema')
-ORDER BY sequence_name`;
-};
 
 declare global {
   interface Window {
@@ -472,22 +442,17 @@ export function App() {
     }
   }, []);
 
-  const loadSchemaObjects = useCallback(async (dbType: DbType) => {
-    const viewsQuery = getSchemaViewsQuery(dbType);
-    const functionsQuery = getSchemaFunctionsQuery(dbType);
-    const sequencesQuery = getSchemaSequencesQuery(dbType);
-
-    const promises = [
-      api.executeQuery(viewsQuery),
-      api.executeQuery(functionsQuery),
-      ...(sequencesQuery ? [api.executeQuery(sequencesQuery)] : []),
-    ];
-    const results = await Promise.allSettled(promises);
-
-    if (results[0]?.status === 'fulfilled') setSchemaViews(results[0].value.data.rows as SchemaObject[]);
-    if (results[1]?.status === 'fulfilled') setSchemaFunctions(results[1].value.data.rows as SchemaObject[]);
-    if (results[2]?.status === 'fulfilled') setSchemaSequences(results[2].value.data.rows as SchemaObject[]);
-    else if (!sequencesQuery) setSchemaSequences([]);
+  const loadSchemaObjects = useCallback(async () => {
+    try {
+      const { data } = await api.getSchemaObjects();
+      setSchemaViews(data.views);
+      setSchemaFunctions(data.functions);
+      setSchemaSequences(data.sequences);
+    } catch {
+      setSchemaViews([]);
+      setSchemaFunctions([]);
+      setSchemaSequences([]);
+    }
   }, []);
 
   const loadTableBrowseData = useCallback(
@@ -560,7 +525,7 @@ export function App() {
         setTablesLoading(false);
       }
 
-      void loadSchemaObjects(activeDbType);
+      void loadSchemaObjects();
     };
     void init();
   }, [loadSchemaObjects, preloadAllStructures]);
