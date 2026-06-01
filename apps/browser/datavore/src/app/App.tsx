@@ -1091,7 +1091,9 @@ export function App() {
     try {
       const explainPrefix = activeDbType === 'mysql'
         ? 'EXPLAIN ANALYZE'
-        : 'EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS, FORMAT TEXT)';
+        : activeDbType === 'sqlite'
+          ? 'EXPLAIN QUERY PLAN'
+          : 'EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS, FORMAT TEXT)';
       const { data } = await api.executeQuery(`${explainPrefix} ${queryToExplain}`, id);
       if (data.error) {
         setExplainResult(data.error);
@@ -1795,14 +1797,15 @@ export function App() {
 
         {/* ── SQL View ── */}
         {activeView === 'sql' ? (
-          <div
-            className="dv-sql-split"
-            ref={sqlSplitShellRef}
-            style={{
-              gridTemplateRows: `minmax(260px, ${sqlSplitRatio * 100}%) 10px minmax(180px, ${(1 - sqlSplitRatio) * 100}%)`,
-            }}
-          >
-            <section className="dv-card dv-card-pad dv-query-section">
+          <div className="dv-sql-workbench">
+            <div
+              className="dv-sql-split"
+              ref={sqlSplitShellRef}
+              style={{
+                gridTemplateRows: `minmax(260px, ${sqlSplitRatio * 100}%) 10px minmax(180px, ${(1 - sqlSplitRatio) * 100}%)`,
+              }}
+            >
+              <section className="dv-card dv-card-pad dv-query-section">
               <div className="dv-query-toolbar">
                 <div className="dv-section-head">
                   <h2 className="dv-section-title">SQL Query Workspace</h2>
@@ -1813,7 +1816,7 @@ export function App() {
                 <div className="dv-toolbar-actions">
                   <button className="dv-btn-ghost" onClick={() => void formatActiveSql()}>Format</button>
                   <button className="dv-btn-ghost" onClick={() => setQueryHistoryOpen((c) => !c)}>
-                    {queryHistoryOpen ? 'Hide History' : 'History'}
+                    {queryHistoryOpen ? 'Top 5 History' : 'All History'}
                   </button>
                   <button className="dv-btn-ghost" onClick={() => { updateActiveTabQuery(''); focusEditor(); }}>Clear</button>
                   <span className="dv-toolbar-sep" />
@@ -1905,33 +1908,6 @@ export function App() {
                 />
               </div>
 
-              {/* History panel */}
-              {queryHistoryOpen && (
-                <section className="dv-query-history">
-                  <div className="dv-section-head">
-                    <h3 className="dv-section-title">Recent queries</h3>
-                    <p className="dv-section-meta">{queryHistory.length} saved</p>
-                  </div>
-                  {queryHistory.length ? (
-                    <div className="dv-query-history-list">
-                      {queryHistory.map((item) => (
-                        <div className="dv-query-history-item" key={item.id}>
-                          <button className="dv-query-history-query" onClick={() => void rerunFromHistory(item)}>
-                            {item.query}
-                          </button>
-                          <p className="dv-section-meta">
-                            {item.rowCount.toLocaleString()} rows &middot; {item.elapsedMs}ms &middot;{' '}
-                            {new Date(item.executedAt).toLocaleString()}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="dv-empty">No queries yet.</p>
-                  )}
-                </section>
-              )}
-
               {executing && <p className="dv-state-text">Executing query...</p>}
               {resultError && <p className="dv-state-text text-danger">{resultError}</p>}
               {exportState.status !== 'idle' && (
@@ -1947,29 +1923,40 @@ export function App() {
                   {result.rowCount.toLocaleString()} rows &middot; {result.elapsedMs}ms
                 </p>
               )}
-            </section>
+              </section>
 
-            <div className="dv-sql-splitter" role="separator" aria-orientation="horizontal" onMouseDown={startSqlSplitResize} />
+              <div className="dv-sql-splitter" role="separator" aria-orientation="horizontal" onMouseDown={startSqlSplitResize} />
 
-            <section className="dv-card dv-card-pad">
-              {/* EXPLAIN result */}
-              {explainOpen && explainResult && (
-                <div className="dv-explain-panel">
-                  <div className="dv-query-toolbar">
-                    <h3 className="dv-section-title">Query Plan (EXPLAIN ANALYZE)</h3>
-                    <button className="dv-btn-ghost dv-btn-sm" onClick={() => setExplainOpen(false)}>Close</button>
+              <section className="dv-card dv-card-pad dv-sql-results-pane">
+                <div className="dv-pane-header">
+                  <div className="dv-section-head">
+                    <h3 className="dv-section-title">Results</h3>
+                    <p className="dv-section-meta">Output stays visible while query details update at right.</p>
                   </div>
-                  <pre className="dv-explain-pre">{explainResult}</pre>
                 </div>
-              )}
-              {/* Query results */}
-              <QueryResultDisplay
-                executing={executing}
-                resultError={resultError}
-                result={result}
-                emptyMessage="Run a query to view results."
-              />
-            </section>
+                <QueryResultDisplay
+                  executing={executing}
+                  resultError={resultError}
+                  result={result}
+                  emptyMessage="Run a query to view results."
+                />
+              </section>
+            </div>
+
+            <SqlQueryInspector
+              dbInfo={dbInfo}
+              result={result}
+              resultError={resultError}
+              executing={executing}
+              activeQuery={activeSqlTab?.query ?? ''}
+              queryHistory={queryHistory}
+              queryHistoryOpen={queryHistoryOpen}
+              onToggleHistory={() => setQueryHistoryOpen((current) => !current)}
+              onRerunHistory={(item) => void rerunFromHistory(item)}
+              explainOpen={explainOpen}
+              explainResult={explainResult}
+              onCloseExplain={() => setExplainOpen(false)}
+            />
           </div>
         ) : (
           /* ── Table View ── */
@@ -2202,6 +2189,126 @@ function QueryResultDisplay({
   if (result) return <DataTable rows={result.rows} rowCount={result.rowCount} sortable />;
   if (emptyMessage) return <p className="dv-empty">{emptyMessage}</p>;
   return null;
+}
+
+/* ── SQL Query Inspector ─────────────────────────────────── */
+
+function SqlQueryInspector({
+  dbInfo,
+  result,
+  resultError,
+  executing,
+  activeQuery,
+  queryHistory,
+  queryHistoryOpen,
+  onToggleHistory,
+  onRerunHistory,
+  explainOpen,
+  explainResult,
+  onCloseExplain,
+}: {
+  dbInfo: DatabaseInfo | null;
+  result: ResultState | null;
+  resultError: string | null;
+  executing: boolean;
+  activeQuery: string;
+  queryHistory: SqlQueryHistoryItem[];
+  queryHistoryOpen: boolean;
+  onToggleHistory: () => void;
+  onRerunHistory: (item: SqlQueryHistoryItem) => void;
+  explainOpen: boolean;
+  explainResult: string | null;
+  onCloseExplain: () => void;
+}) {
+  const resultColumns = result?.rows[0] ? Object.keys(result.rows[0]) : [];
+  const visibleHistory = queryHistoryOpen ? queryHistory : queryHistory.slice(0, 5);
+  const queryLineCount = Math.max(1, activeQuery.split('\n').length);
+  const status = executing ? 'Running' : resultError || result?.error ? 'Error' : result ? 'Ready' : 'Idle';
+
+  return (
+    <aside className="dv-card dv-card-pad dv-sql-inspector" aria-label="SQL query details">
+      <div className="dv-pane-header">
+        <div className="dv-section-head">
+          <h3 className="dv-section-title">Query Inspector</h3>
+          <p className="dv-section-meta">Context, plan, and history stay visible beside results.</p>
+        </div>
+      </div>
+
+      <div className="dv-sql-inspector-stack">
+        <section>
+          <h4 className="dv-object-detail-title">Execution</h4>
+          <div className="dv-object-summary-grid">
+            <span>Status <strong>{status}</strong></span>
+            <span>Rows <strong>{result?.rowCount?.toLocaleString() ?? '0'}</strong></span>
+            <span>Time <strong>{result ? `${result.elapsedMs}ms` : 'n/a'}</strong></span>
+            <span>Columns <strong>{resultColumns.length}</strong></span>
+          </div>
+        </section>
+
+        <section>
+          <h4 className="dv-object-detail-title">Connection</h4>
+          <dl className="dv-sql-meta-list">
+            <div><dt>Type</dt><dd>{dbInfo?.type ?? activeDbType}</dd></div>
+            <div><dt>Database</dt><dd>{dbInfo?.databaseName ?? 'unknown'}</dd></div>
+            <div><dt>Query</dt><dd>{queryLineCount} line{queryLineCount === 1 ? '' : 's'}</dd></div>
+          </dl>
+        </section>
+
+        <section>
+          <div className="dv-query-toolbar">
+            <h4 className="dv-object-detail-title">Result Columns</h4>
+          </div>
+          {resultColumns.length ? (
+            <div className="dv-sql-column-chips">
+              {resultColumns.map((column) => <span key={column}>{column}</span>)}
+            </div>
+          ) : (
+            <p className="dv-empty dv-empty-tight">No result columns yet.</p>
+          )}
+        </section>
+
+        <section>
+          <div className="dv-query-toolbar">
+            <h4 className="dv-object-detail-title">Query Plan</h4>
+            {explainOpen && explainResult && <button className="dv-btn-ghost dv-btn-sm" onClick={onCloseExplain}>Close</button>}
+          </div>
+          {explainOpen && explainResult ? (
+            <pre className="dv-explain-pre dv-explain-pre-compact">{explainResult}</pre>
+          ) : (
+            <p className="dv-empty dv-empty-tight">Run Explain to pin the plan here.</p>
+          )}
+        </section>
+
+        <section>
+          <div className="dv-query-toolbar">
+            <div>
+              <h4 className="dv-object-detail-title">Recent Queries</h4>
+              <p className="dv-section-meta">{queryHistory.length} saved</p>
+            </div>
+            <button className="dv-btn-ghost dv-btn-sm" onClick={onToggleHistory}>
+              {queryHistoryOpen ? 'Top 5' : 'All'}
+            </button>
+          </div>
+          {visibleHistory.length ? (
+            <div className="dv-query-history-list dv-query-history-list-compact">
+              {visibleHistory.map((item) => (
+                <div className="dv-query-history-item" key={item.id}>
+                  <button className="dv-query-history-query" onClick={() => onRerunHistory(item)}>
+                    {item.query}
+                  </button>
+                  <p className="dv-section-meta">
+                    {item.rowCount.toLocaleString()} rows &middot; {item.elapsedMs}ms &middot; {new Date(item.executedAt).toLocaleString()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="dv-empty dv-empty-tight">No queries yet.</p>
+          )}
+        </section>
+      </div>
+    </aside>
+  );
 }
 
 /* ── DataTable ───────────────────────────────────────────── */

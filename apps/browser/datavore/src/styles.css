@@ -252,9 +252,16 @@
   }
 
   /* ── SQL split pane ── */
+  .dv-sql-workbench {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+    gap: 12px;
+    align-items: start;
+  }
   .dv-sql-split {
     @apply grid gap-0;
     min-height: 70vh;
+    min-width: 0;
   }
   .dv-sql-splitter {
     background: var(--color-border-subtle);
@@ -263,6 +270,66 @@
     transition: background var(--duration-fast) var(--ease-out);
   }
   .dv-sql-splitter:hover { background: var(--color-accent); }
+  .dv-sql-results-pane,
+  .dv-sql-inspector { min-width: 0; }
+  .dv-sql-inspector {
+    position: sticky;
+    top: 14px;
+    max-height: calc(100vh - 28px);
+    overflow: auto;
+  }
+  .dv-sql-inspector-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .dv-sql-meta-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 0;
+  }
+  .dv-sql-meta-list div {
+    @apply rounded-md;
+    display: grid;
+    grid-template-columns: 82px minmax(0, 1fr);
+    gap: 8px;
+    padding: 6px 8px;
+    background: var(--color-muted);
+    border: 1px solid var(--color-border-subtle);
+  }
+  .dv-sql-meta-list dt {
+    color: var(--color-faint);
+    font-size: 11px;
+  }
+  .dv-sql-meta-list dd {
+    margin: 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  .dv-sql-column-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .dv-sql-column-chips span {
+    @apply rounded;
+    padding: 2px 6px;
+    background: var(--color-muted);
+    border: 1px solid var(--color-border-subtle);
+    color: var(--color-subtle);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  .dv-empty-tight {
+    padding: 8px 0;
+    font-size: 12px;
+  }
 
   /* ── Editor ── */
   .dv-editor-shell {
@@ -561,6 +628,9 @@
     flex-direction: column;
     gap: 4px;
   }
+  .dv-query-history-list-compact {
+    max-height: 260px;
+  }
   .dv-query-history-item {
     @apply rounded-md;
     padding: 8px 10px;
@@ -845,6 +915,11 @@
     margin: 0;
     line-height: 1.6;
   }
+  .dv-explain-pre-compact {
+    max-height: 240px;
+    overflow: auto;
+    font-size: 11px;
+  }
   .dv-explain-node {
     border-left: 2px solid var(--color-accent);
     padding-left: 12px;
@@ -922,6 +997,8 @@
   @media (max-width: 1024px) {
     .dv-shell { grid-template-columns: 1fr; }
     .dv-sidebar { border-right: none; border-bottom: 1px solid var(--color-border-subtle); }
+    .dv-sql-workbench { grid-template-columns: 1fr; }
+    .dv-sql-inspector { position: static; max-height: none; }
     .dv-table-workbench { grid-template-columns: 1fr; }
     .dv-object-details { position: static; max-height: none; }
     .dv-table-content { @apply grid-cols-1; }
