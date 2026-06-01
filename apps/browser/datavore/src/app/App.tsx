@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import * as Tabs from '@radix-ui/react-tabs';
 import Editor from '@monaco-editor/react';
 import {
   createDatavoreApi,
@@ -306,7 +305,6 @@ export function App() {
   /* ── View state ── */
   const [activeView, setActiveView] = useState<SidebarView>('sql');
   const [selectedTable, setSelectedTable] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'data' | 'structure'>('data');
   const [tableData, setTableData] = useState<Record<string, unknown>[]>([]);
   const [tableDataError, setTableDataError] = useState<string | null>(null);
   const [tableDataLoading, setTableDataLoading] = useState(false);
@@ -710,7 +708,6 @@ export function App() {
     async (tableName: string) => {
       setActiveView('table');
       setSelectedTable(tableName);
-      setActiveTab('data');
       setTableData([]);
       setStructure(null);
       setTableDataError(null);
@@ -1045,7 +1042,6 @@ export function App() {
       if (!queryToExecute.trim()) return;
 
       setActiveView('sql');
-      setActiveTab('data');
       setResult(null);
       setResultError(null);
       setExplainResult(null);
@@ -1230,8 +1226,6 @@ export function App() {
       if (key === 'enter' && !event.shiftKey) { event.preventDefault(); void executeQuery(); return; }
       if (key === 'enter' && event.shiftKey) { event.preventDefault(); void runExplain(); return; }
       if (key === 'f' && event.shiftKey) { event.preventDefault(); void formatActiveSql(); return; }
-      if (key === '1') { event.preventDefault(); setActiveTab('data'); return; }
-      if (key === '2') { event.preventDefault(); setActiveTab('structure'); return; }
       if (key === 'b') { event.preventDefault(); setFilterBarOpen((c) => !c); return; }
     };
     window.addEventListener('keydown', handleKeydown);
@@ -2026,13 +2020,14 @@ export function App() {
               </section>
             )}
 
-            <Tabs.Root value={activeTab} onValueChange={(v) => setActiveTab(v as 'data' | 'structure')}>
-              <Tabs.List className="dv-tab-list">
-                <Tabs.Trigger className="dv-tab" value="data">Data</Tabs.Trigger>
-                <Tabs.Trigger className="dv-tab" value="structure">Structure</Tabs.Trigger>
-              </Tabs.List>
-
-              <Tabs.Content value="data" className="dv-card dv-card-pad">
+            <div className="dv-table-workbench">
+              <section className="dv-card dv-card-pad dv-table-data-pane" aria-label="Table data">
+                <div className="dv-pane-header">
+                  <div className="dv-section-head">
+                    <h3 className="dv-section-title">Data</h3>
+                    <p className="dv-section-meta">Rows stay visible while inspecting columns and keys.</p>
+                  </div>
+                </div>
                 {!selectedTable ? (
                   <p className="dv-empty">Select a table to view data.</p>
                 ) : tableDataLoading ? (
@@ -2159,9 +2154,15 @@ export function App() {
                     )}
                   </>
                 )}
-              </Tabs.Content>
+              </section>
 
-              <Tabs.Content value="structure" className="dv-card dv-card-pad">
+              <aside className="dv-card dv-card-pad dv-object-details" aria-label="Table structure and details">
+                <div className="dv-pane-header">
+                  <div className="dv-section-head">
+                    <h3 className="dv-section-title">Structure</h3>
+                    <p className="dv-section-meta">Columns, keys, and indexes for {selectedTable || 'the selected object'}.</p>
+                  </div>
+                </div>
                 {!selectedTable ? (
                   <p className="dv-empty">Select a table to inspect structure.</p>
                 ) : structureLoading ? (
@@ -2169,12 +2170,12 @@ export function App() {
                 ) : structureError ? (
                   <p className="text-danger text-sm">{structureError}</p>
                 ) : structure ? (
-                  <StructurePanel structure={structure} />
+                  <ObjectDetailsPanel structure={structure} />
                 ) : (
                   <p className="dv-empty">No structure loaded.</p>
                 )}
-              </Tabs.Content>
-            </Tabs.Root>
+              </aside>
+            </div>
           </>
         )}
       </main>
@@ -2453,28 +2454,60 @@ function DataTable({
   );
 }
 
-/* ── StructurePanel ──────────────────────────────────────── */
-
-function StructurePanel({ structure }: { structure: TableStructureInfo }) {
-  const sections: { label: string; emptyLabel: string; rows: Record<string, unknown>[]; sortable?: boolean }[] = [
-    { label: 'Columns', emptyLabel: 'No columns.', rows: structure.columns, sortable: true },
-    { label: 'Primary Keys', emptyLabel: 'No primary keys.', rows: structure.primaryKeys },
-    { label: 'Foreign Keys', emptyLabel: 'No foreign keys.', rows: structure.foreignKeys, sortable: true },
-    { label: 'Indexes', emptyLabel: 'No indexes.', rows: structure.indices, sortable: true },
-  ];
+function ObjectDetailsPanel({ structure }: { structure: TableStructureInfo }) {
+  const primaryKeys = new Set(structure.primaryKeys.map((pk) => pk.columnName));
+  const foreignKeys = new Map(structure.foreignKeys.map((fk) => [fk.columnName, fk]));
 
   return (
-    <div className="space-y-6 text-sm">
-      {sections.map(({ label, emptyLabel, rows, sortable }) => (
-        <section key={label}>
-          <h3 className="font-semibold mb-2">{label} ({rows.length})</h3>
-          {rows.length ? (
-            <DataTable rows={rows} sortable={sortable} />
-          ) : (
-            <p className="dv-empty">{emptyLabel}</p>
-          )}
-        </section>
-      ))}
+    <div className="dv-object-detail-stack">
+      <div className="dv-object-summary-grid">
+        <span><strong>{structure.columns.length}</strong> columns</span>
+        <span><strong>{structure.primaryKeys.length}</strong> PK</span>
+        <span><strong>{structure.foreignKeys.length}</strong> FK</span>
+        <span><strong>{structure.indices.length}</strong> indexes</span>
+      </div>
+
+      <section>
+        <h4 className="dv-object-detail-title">Columns</h4>
+        <div className="dv-object-column-list" role="list">
+          {structure.columns.map((column) => {
+            const foreignKey = foreignKeys.get(column.columnName);
+            return (
+              <div className="dv-object-column" key={column.columnName} role="listitem">
+                <div className="dv-object-column-main">
+                  <span className="dv-object-column-name">{column.columnName}</span>
+                  <span className="dv-object-column-type">{column.dataType}</span>
+                </div>
+                <div className="dv-object-column-meta">
+                  {primaryKeys.has(column.columnName) && <span className="dv-key-pill">PK</span>}
+                  {foreignKey && <span className="dv-key-pill">FK → {foreignKey.foreignTableName}</span>}
+                  <span>{column.isNullable === 'YES' ? 'nullable' : 'required'}</span>
+                  {column.columnDefault && <span>default</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section>
+        <h4 className="dv-object-detail-title">Indexes</h4>
+        {structure.indices.length ? (
+          <div className="dv-object-index-list">
+            {structure.indices.map((index, i) => {
+              const indexRecord = index as Record<string, unknown>;
+              return (
+                <div className="dv-object-index" key={`${String(indexRecord.indexName ?? 'index')}-${i}`}>
+                  <span>{String(indexRecord.indexName ?? 'index')}</span>
+                  <small>{String(indexRecord.columnNames ?? indexRecord.columnName ?? '')}</small>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="dv-empty">No indexes.</p>
+        )}
+      </section>
     </div>
   );
 }
