@@ -184,14 +184,18 @@ const buildRowWhereClause = (pkColumns: string[], row: Record<string, unknown>):
   return clauses.join(' AND ');
 };
 
-const buildUpdateQuery = (
+const buildUpdateRowQuery = (
   table: string,
-  column: string,
-  newValue: string,
+  values: Record<string, string>,
+  originalValues: Record<string, string>,
   pkColumns: string[],
   row: Record<string, unknown>,
 ): string => {
-  const setClause = `${quoteIdentifier(column)} = ${newValue === '' ? 'NULL' : escapeSqlValue(newValue)}`;
+  const changedColumns = Object.keys(values).filter((column) => values[column] !== originalValues[column]);
+  if (!changedColumns.length) return '';
+  const setClause = changedColumns
+    .map((column) => `${quoteIdentifier(column)} = ${values[column] === '' ? 'NULL' : escapeSqlValue(values[column])}`)
+    .join(', ');
   return `UPDATE ${quoteIdentifier(table)} SET ${setClause} WHERE ${buildRowWhereClause(pkColumns, row)}`;
 };
 
@@ -258,6 +262,15 @@ type ExportState = {
   partialSaved: boolean;
   message?: string;
 };
+
+type RowFormMode = 'add' | 'edit';
+
+type RowFormState = {
+  mode: RowFormMode;
+  values: Record<string, string>;
+  originalValues: Record<string, string>;
+  row?: Record<string, unknown>;
+} | null;
 
 type JsonCellModalState = {
   value: unknown;
@@ -382,10 +395,7 @@ export function App() {
 
   /* ── Inline editing ── */
   const [editMode, setEditMode] = useState(false);
-  const [editingCell, setEditingCell] = useState<{ rowIndex: number; column: string } | null>(null);
-  const [editDraft, setEditDraft] = useState('');
-  const [addingRow, setAddingRow] = useState(false);
-  const [newRowValues, setNewRowValues] = useState<Record<string, string>>({});
+  const [rowForm, setRowForm] = useState<RowFormState>(null);
 
   /* ── SQL workspace ── */
   const [result, setResult] = useState<ResultState | null>(null);
@@ -855,8 +865,7 @@ export function App() {
       setTablePageOffset(0);
       setTableTotalRows(null);
       setEditMode(false);
-      setEditingCell(null);
-      setAddingRow(false);
+      setRowForm(null);
 
       setTableDataLoading(true);
       setStructureLoading(true);
@@ -953,28 +962,48 @@ export function App() {
     [selectedTable, tableSort, tableFilters, loadTableBrowseData],
   );
 
-  /* ── Inline editing ── */
+  /* ── Row editing ── */
 
-  const commitCellEdit = useCallback(
-    async (rowIndex: number, column: string, newValue: string) => {
-      if (!selectedTable) return;
+  const getEditableColumns = useCallback(() => {
+    if (structure?.columns.length) return structure.columns.map((column) => column.columnName);
+    return Object.keys(tableData[0] ?? {});
+  }, [structure, tableData]);
+
+  const openAddRowModal = useCallback(() => {
+    const values = Object.fromEntries(getEditableColumns().map((column) => [column, '']));
+    setRowForm({ mode: 'add', values, originalValues: {} });
+  }, [getEditableColumns]);
+
+  const openEditRowModal = useCallback(
+    (rowIndex: number) => {
       const row = tableData[rowIndex];
       if (!row) return;
-      const oldValue = formatCellValue(row[column]);
-      if (newValue === oldValue) { setEditingCell(null); return; }
+      const values = Object.fromEntries(getEditableColumns().map((column) => [column, formatFormValue(row[column])]));
+      setRowForm({ mode: 'edit', values, originalValues: values, row });
+    },
+    [getEditableColumns, tableData],
+  );
 
-      const sql = buildUpdateQuery(selectedTable, column, newValue, primaryKeyColumns, row);
+  const submitRowForm = useCallback(
+    async () => {
+      if (!selectedTable || !rowForm) return;
+      const sql = rowForm.mode === 'add'
+        ? buildInsertQuery(selectedTable, rowForm.values)
+        : rowForm.row
+          ? buildUpdateRowQuery(selectedTable, rowForm.values, rowForm.originalValues, primaryKeyColumns, rowForm.row)
+          : '';
+      if (!sql) { setRowForm(null); return; }
+
       try {
         const { data } = await api.executeQuery(sql);
         if (data.error) { setTableDataError(data.error); return; }
-        // Refresh data
+        setRowForm(null);
         void loadTableBrowseData(selectedTable, tableSort, tableFilters, tablePageSize, tablePageOffset);
       } catch (error) {
-        setTableDataError(getErrorMessage(error, 'Failed to save edit.'));
+        setTableDataError(getErrorMessage(error, rowForm.mode === 'add' ? 'Failed to insert row.' : 'Failed to save row.'));
       }
-      setEditingCell(null);
     },
-    [selectedTable, tableData, primaryKeyColumns, tableSort, tableFilters, tablePageSize, tablePageOffset, loadTableBrowseData],
+    [loadTableBrowseData, primaryKeyColumns, rowForm, selectedTable, tableFilters, tablePageOffset, tablePageSize, tableSort],
   );
 
   const deleteRow = useCallback(
@@ -992,24 +1021,6 @@ export function App() {
       }
     },
     [selectedTable, tableData, primaryKeyColumns, tableSort, tableFilters, tablePageSize, tablePageOffset, loadTableBrowseData],
-  );
-
-  const insertRow = useCallback(
-    async () => {
-      if (!selectedTable) return;
-      const sql = buildInsertQuery(selectedTable, newRowValues);
-      if (!sql) return;
-      try {
-        const { data } = await api.executeQuery(sql);
-        if (data.error) { setTableDataError(data.error); return; }
-        setAddingRow(false);
-        setNewRowValues({});
-        void loadTableBrowseData(selectedTable, tableSort, tableFilters, tablePageSize, tablePageOffset);
-      } catch (error) {
-        setTableDataError(getErrorMessage(error, 'Failed to insert row.'));
-      }
-    },
-    [selectedTable, newRowValues, tableSort, tableFilters, tablePageSize, tablePageOffset, loadTableBrowseData],
   );
 
   /* ── FK navigation ── */
@@ -2054,6 +2065,18 @@ export function App() {
           />
         )}
 
+        {rowForm && (
+          <RowFormModal
+            tableName={selectedTable}
+            mode={rowForm.mode}
+            values={rowForm.values}
+            structure={structure}
+            onChange={(column, value) => setRowForm((current) => current ? ({ ...current, values: { ...current.values, [column]: value } }) : current)}
+            onClose={() => setRowForm(null)}
+            onSubmit={() => void submitRowForm()}
+          />
+        )}
+
         {/* ── SQL View ── */}
         {activeView === 'sql' ? (
           <div className="dv-sql-workbench">
@@ -2240,12 +2263,12 @@ export function App() {
                 <span className="dv-toolbar-sep" />
                 <button
                   className={`dv-btn-ghost ${editMode ? 'ring-1 ring-accent' : ''}`}
-                  onClick={() => { setEditMode((c) => !c); setEditingCell(null); setAddingRow(false); }}
+                  onClick={() => setEditMode((c) => !c)}
                 >
                   {editMode ? 'Done Editing' : 'Edit'}
                 </button>
                 {editMode && (
-                  <button className="dv-btn-ghost" onClick={() => { setAddingRow(true); setNewRowValues({}); }}>
+                  <button className="dv-btn-ghost" onClick={openAddRowModal} disabled={!selectedTable}>
                     + Add Row
                   </button>
                 )}
@@ -2292,40 +2315,13 @@ export function App() {
                       </div>
                     )}
 
-                    {/* Add row form */}
-                    {addingRow && editMode && tableData.length > 0 && (
-                      <div className="dv-edit-toolbar">
-                        <span className="text-xs text-subtle">New row:</span>
-                        {Object.keys(tableData[0] ?? {}).map((col) => (
-                          <input
-                            key={col}
-                            className="dv-filter-input"
-                            placeholder={col}
-                            value={newRowValues[col] ?? ''}
-                            onChange={(e) => setNewRowValues((c) => ({ ...c, [col]: e.target.value }))}
-                            onKeyDown={(e) => { if (e.key === 'Enter') void insertRow(); }}
-                          />
-                        ))}
-                        <button className="dv-btn dv-btn-sm" onClick={() => void insertRow()}>Insert</button>
-                        <button className="dv-btn-ghost dv-btn-sm" onClick={() => { setAddingRow(false); setNewRowValues({}); }}>Cancel</button>
-                      </div>
-                    )}
-
                     <DataTable
                       rows={tableData}
                             sortable
                       serverSort={tableSort}
                       onServerSort={handleTableSort}
                       editable={editMode}
-                      editingCell={editingCell}
-                      editDraft={editDraft}
-                      onStartEdit={(rowIndex, column) => {
-                        setEditingCell({ rowIndex, column });
-                        setEditDraft(formatCellValue(tableData[rowIndex]?.[column]));
-                      }}
-                      onEditDraftChange={setEditDraft}
-                      onCommitEdit={commitCellEdit}
-                      onCancelEdit={() => setEditingCell(null)}
+                      onEditRow={openEditRowModal}
                       onDeleteRow={deleteRow}
                       fkMap={foreignKeyMap}
                       onFkNavigate={navigateToFk}
@@ -2572,6 +2568,65 @@ function SqlQueryInspector({
 
 /* ── DataTable ───────────────────────────────────────────── */
 
+function RowFormModal({
+  tableName,
+  mode,
+  values,
+  structure,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  tableName: string;
+  mode: RowFormMode;
+  values: Record<string, string>;
+  structure: TableStructureInfo | null;
+  onChange: (column: string, value: string) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const columns = structure?.columns.length
+    ? structure.columns
+    : Object.keys(values).map((columnName) => ({ columnName, dataType: '', isNullable: 'YES', columnDefault: null }));
+  const title = mode === 'add' ? `Add row to ${tableName}` : `Edit row in ${tableName}`;
+
+  return (
+    <section className="dv-modal-backdrop" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="dv-modal dv-row-form-modal">
+        <div className="dv-query-toolbar">
+          <div className="dv-section-head">
+            <h2 className="dv-section-title">{title}</h2>
+            <p className="dv-section-meta">Blank fields are omitted on insert and set to NULL on edit.</p>
+          </div>
+          <button className="dv-btn-ghost" onClick={onClose}>Close</button>
+        </div>
+
+        <div className="dv-row-form-grid">
+          {columns.map((column) => (
+            <label className="dv-row-form-field" key={column.columnName}>
+              <span>
+                <strong>{column.columnName}</strong>
+                <small>{column.dataType || 'value'} · {column.isNullable === 'YES' ? 'nullable' : 'required'}{column.columnDefault ? ' · default' : ''}</small>
+              </span>
+              <textarea
+                className="dv-input dv-row-form-input"
+                value={values[column.columnName] ?? ''}
+                onChange={(event) => onChange(column.columnName, event.target.value)}
+                spellCheck={false}
+              />
+            </label>
+          ))}
+        </div>
+
+        <div className="dv-modal-actions">
+          <button className="dv-btn" onClick={onSubmit}>{mode === 'add' ? 'Insert Row' : 'Save Row'}</button>
+          <button className="dv-btn-ghost" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function DataTable({
   rows,
   rowCount,
@@ -2579,12 +2634,7 @@ function DataTable({
   serverSort,
   onServerSort,
   editable,
-  editingCell,
-  editDraft,
-  onStartEdit,
-  onEditDraftChange,
-  onCommitEdit,
-  onCancelEdit,
+  onEditRow,
   onDeleteRow,
   fkMap,
   onFkNavigate,
@@ -2598,12 +2648,7 @@ function DataTable({
   serverSort?: SortState;
   onServerSort?: (column: string) => void;
   editable?: boolean;
-  editingCell?: { rowIndex: number; column: string } | null;
-  editDraft?: string;
-  onStartEdit?: (rowIndex: number, column: string) => void;
-  onEditDraftChange?: (value: string) => void;
-  onCommitEdit?: (rowIndex: number, column: string, value: string) => Promise<void>;
-  onCancelEdit?: () => void;
+  onEditRow?: (rowIndex: number) => void;
   onDeleteRow?: (rowIndex: number) => Promise<void>;
   fkMap?: Map<string, { table: string; column: string }>;
   onFkNavigate?: (table: string, column: string, value: unknown) => void;
@@ -2645,10 +2690,6 @@ function DataTable({
       setSelectedRowIndex(null);
       onSelectedRowChange?.(null);
     }
-  }, [onSelectedRowChange, rows, selectedRowIndex]);
-
-  useEffect(() => {
-    onSelectedRowChange?.(selectedRowIndex === null ? null : rows[selectedRowIndex] ?? null);
   }, [onSelectedRowChange, rows, selectedRowIndex]);
 
   useEffect(() => {
@@ -2743,6 +2784,11 @@ function DataTable({
         {jsonataPreviewColumns.length > 0 && (
           <button className="dv-btn-ghost dv-btn-sm" onClick={() => setJsonataPreviewColumns([])}>Clear Previews</button>
         )}
+        {editable && selectedRowIndex !== null && onEditRow && (
+          <button className="dv-btn-ghost dv-btn-sm" onClick={() => onEditRow(selectedRowIndex)}>
+            Edit Row
+          </button>
+        )}
         {editable && selectedRowIndex !== null && onDeleteRow && (
           <button className="dv-btn-danger dv-btn-sm" onClick={() => void onDeleteRow(selectedRowIndex)}>
             Delete Row
@@ -2789,54 +2835,33 @@ function DataTable({
                   <tr
                     key={idx}
                     className={isSelected ? 'dv-table-row-selected' : ''}
-                    onClick={() => setSelectedRowIndex(idx)}
+                    onClick={() => {
+                      setSelectedRowIndex(idx);
+                      onSelectedRowChange?.(row);
+                    }}
                   >
                     <td className="dv-table-index">{idx + 1}</td>
                     {renderedColumns.map((column) => {
                       const previewColumn = jsonataPreviewColumns.find((preview) => preview.label === column);
-                      const isEditing = editable && editingCell?.rowIndex === idx && editingCell?.column === column;
                       const fk = fkMap?.get(column);
                       const cellValue = previewColumn
                         ? jsonataPreviewValues[`${previewColumn.id}:${idx}`] ?? '...'
                         : row[column];
-
-                      if (!previewColumn && isEditing) {
-                        return (
-                          <td key={column} className="dv-cell-edited" style={columnWidths[column] ? { width: `${columnWidths[column]}px` } : undefined}>
-                            <input
-                              className="dv-cell-edit-input"
-                              value={editDraft ?? ''}
-                              onChange={(e) => onEditDraftChange?.(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') { e.preventDefault(); void onCommitEdit?.(idx, column, editDraft ?? ''); }
-                                if (e.key === 'Escape') { e.preventDefault(); onCancelEdit?.(); }
-                                if (e.key === 'Tab') {
-                                  e.preventDefault();
-                                  void onCommitEdit?.(idx, column, editDraft ?? '');
-                                  const nextColIdx = columns.indexOf(column) + 1;
-                                  if (nextColIdx < columns.length) onStartEdit?.(idx, columns[nextColIdx]);
-                                }
-                              }}
-                              onBlur={() => void onCommitEdit?.(idx, column, editDraft ?? '')}
-                              autoFocus
-                            />
-                          </td>
-                        );
-                      }
 
                       return (
                         <td
                           key={column}
                           className={`dv-table-cell ${editable ? 'dv-cell-editable' : ''}`}
                           style={columnWidths[column] ? { width: `${columnWidths[column]}px` } : undefined}
-                          title={editable ? 'Double-click to edit' : 'Click to copy'}
+                          title={editable ? 'Double-click to edit row' : 'Click to copy'}
                           onClick={(event) => {
                             event.stopPropagation();
                             setSelectedRowIndex(idx);
+                            onSelectedRowChange?.(row);
                             if (!editable) void navigator.clipboard.writeText(formatCellValue(cellValue));
                           }}
                           onDoubleClick={() => {
-                            if (editable) onStartEdit?.(idx, column);
+                            if (editable) onEditRow?.(idx);
                           }}
                         >
                           {previewColumn ? (
@@ -2864,7 +2889,10 @@ function DataTable({
                 <h3 className="dv-section-title">Row {(selectedRowIndex ?? 0) + 1}</h3>
                 <p className="dv-section-meta">{columns.length} fields</p>
               </div>
-              <button className="dv-btn-ghost" onClick={() => setSelectedRowIndex(null)}>Close</button>
+              <div className="dv-toolbar-actions">
+                {editable && onEditRow && <button className="dv-btn-ghost" onClick={() => onEditRow(selectedRowIndex ?? 0)}>Edit</button>}
+                <button className="dv-btn-ghost" onClick={() => { setSelectedRowIndex(null); onSelectedRowChange?.(null); }}>Close</button>
+              </div>
             </div>
             <dl className="dv-row-drawer-grid">
               {columns.map((column) => {
@@ -3193,6 +3221,12 @@ function RelationshipList({
 function formatCellValue(value: unknown): string {
   if (value === null || value === undefined) return 'NULL';
   if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function formatFormValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return JSON.stringify(value, null, 2);
   return String(value);
 }
 
