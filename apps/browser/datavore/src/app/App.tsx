@@ -13,8 +13,10 @@ import {
   createDatavoreApi,
   DatabaseInfo,
   QueryJsonlExportError,
+  RelationshipInfo,
   SchemaObjectInfo,
   TableInfo,
+  TableRelationships,
   TableStructureInfo,
 } from '@onivoro/axios-datavore';
 import {
@@ -61,8 +63,10 @@ type DbType = 'postgres' | 'mysql' | string;
 
 let activeDbType: DbType = 'postgres';
 
+const isMysqlFamily = (dbType: string): boolean => dbType === 'mysql' || dbType === 'mariadb' || dbType === 'aurora-mysql';
+
 const quoteIdentifier = (name: string): string =>
-  activeDbType === 'mysql'
+  isMysqlFamily(activeDbType)
     ? `\`${name.replace(/`/g, '``')}\``
     : `"${name.replace(/"/g, '""')}"`;
 
@@ -134,7 +138,7 @@ const exportCsv = (rows: Record<string, unknown>[], filename: string) => {
 
 const buildFilterClause = (col: string, val: string): string => {
   const escaped = val.replace(/'/g, "''");
-  if (activeDbType === 'mysql') {
+  if (isMysqlFamily(activeDbType)) {
     return `CAST(${quoteIdentifier(col)} AS CHAR) LIKE '%${escaped}%'`;
   }
   if (activeDbType === 'sqlite') {
@@ -165,6 +169,9 @@ const buildSelectQuery = (
 
 const buildCountQuery = (table: string, filters: Record<string, string>): string =>
   `SELECT COUNT(*) as total FROM ${quoteIdentifier(table)}${buildWhereClause(filters)}`;
+
+const buildRelationshipJoinQuery = (relationship: RelationshipInfo): string =>
+  `SELECT *\nFROM ${quoteIdentifier(relationship.sourceTable)}\nJOIN ${quoteIdentifier(relationship.targetTable)} ON ${quoteIdentifier(relationship.sourceTable)}.${quoteIdentifier(relationship.sourceColumn)} = ${quoteIdentifier(relationship.targetTable)}.${quoteIdentifier(relationship.targetColumn)}\nLIMIT 100;`;
 
 const buildRowWhereClause = (pkColumns: string[], row: Record<string, unknown>): string => {
   const keyColumns = pkColumns.length ? pkColumns : Object.keys(row);
@@ -326,6 +333,10 @@ export function App() {
   const [structure, setStructure] = useState<TableStructureInfo | null>(null);
   const [structureError, setStructureError] = useState<string | null>(null);
   const [structureLoading, setStructureLoading] = useState(false);
+  const [relationships, setRelationships] = useState<TableRelationships | null>(null);
+  const [relationshipsError, setRelationshipsError] = useState<string | null>(null);
+  const [relationshipsLoading, setRelationshipsLoading] = useState(false);
+  const [selectedTableRow, setSelectedTableRow] = useState<Record<string, unknown> | null>(null);
 
   /* ── Table browsing (sort/filter/pagination) ── */
   const [tableSort, setTableSort] = useState<SortState>(null);
@@ -726,8 +737,11 @@ export function App() {
       setSelectedTable(tableName);
       setTableData([]);
       setStructure(null);
+      setRelationships(null);
+      setSelectedTableRow(null);
       setTableDataError(null);
       setStructureError(null);
+      setRelationshipsError(null);
       setTableSort(null);
       setTableFilters({});
       setTablePageOffset(0);
@@ -738,10 +752,12 @@ export function App() {
 
       setTableDataLoading(true);
       setStructureLoading(true);
+      setRelationshipsLoading(true);
 
-      const [dataResult, structureResult] = await Promise.allSettled([
+      const [dataResult, structureResult, relationshipsResult] = await Promise.allSettled([
         api.executeQuery(buildSelectQuery(tableName, null, {}, tablePageSize, 0)),
         api.getTableStructure(tableName),
+        api.getTableRelationships(tableName),
       ]);
 
       if (dataResult.status === 'fulfilled') {
@@ -758,6 +774,13 @@ export function App() {
         setStructureError(getErrorMessage(structureResult.reason, 'Failed to load table structure.'));
       }
       setStructureLoading(false);
+
+      if (relationshipsResult.status === 'fulfilled') {
+        setRelationships(relationshipsResult.value.data);
+      } else {
+        setRelationshipsError(getErrorMessage(relationshipsResult.reason, 'Failed to load table relationships.'));
+      }
+      setRelationshipsLoading(false);
 
       // Get total count
       try {
@@ -893,6 +916,37 @@ export function App() {
       });
     },
     [selectTable, tablePageSize, loadTableBrowseData],
+  );
+
+  const navigateRelationship = useCallback(
+    (relationship: RelationshipInfo) => {
+      const isOutbound = relationship.sourceTable === selectedTable;
+      const targetTable = isOutbound ? relationship.targetTable : relationship.sourceTable;
+      const targetColumn = isOutbound ? relationship.targetColumn : relationship.sourceColumn;
+      const valueColumn = isOutbound ? relationship.sourceColumn : relationship.targetColumn;
+      const value = selectedTableRow?.[valueColumn];
+
+      if (value === null || value === undefined) {
+        void selectTable(targetTable);
+        return;
+      }
+
+      navigateToFk(targetTable, targetColumn, value);
+    },
+    [navigateToFk, selectTable, selectedTable, selectedTableRow],
+  );
+
+  const openRelationshipJoinQuery = useCallback(
+    (relationship: RelationshipInfo) => {
+      const query = buildRelationshipJoinQuery(relationship);
+      setSqlWorkspace((current) => {
+        const newTab = createTab(query, current.tabs.length, `${relationship.sourceTable} join`);
+        return { tabs: [...current.tabs, newTab], activeTabId: newTab.id };
+      });
+      setActiveView('sql');
+      requestAnimationFrame(() => editorRef.current?.focus());
+    },
+    [],
   );
 
   /* ── Focus helpers ── */
@@ -1821,19 +1875,12 @@ export function App() {
         {/* ── SQL View ── */}
         {activeView === 'sql' ? (
           <div className="dv-sql-workbench">
-            <div
-              className="dv-sql-split"
-              ref={sqlSplitShellRef}
-              style={{
-                gridTemplateRows: `minmax(260px, ${sqlSplitRatio * 100}%) 10px minmax(180px, ${(1 - sqlSplitRatio) * 100}%)`,
-              }}
-            >
-              <section className="dv-card dv-card-pad dv-query-section">
+            <section className="dv-card dv-card-pad dv-sql-query-results" aria-label="SQL query and results">
               <div className="dv-query-toolbar">
                 <div className="dv-section-head">
-                  <h2 className="dv-section-title">SQL Query Workspace</h2>
+                  <h2 className="dv-section-title">SQL Query + Results</h2>
                   <p className="dv-section-meta">
-                    Cmd+Enter run &middot; Shift+Cmd+Enter explain
+                    Query and output stay paired. Cmd+Enter run &middot; Shift+Cmd+Enter explain
                   </p>
                 </div>
                 <div className="dv-toolbar-actions">
@@ -1863,109 +1910,118 @@ export function App() {
                 </div>
               </div>
 
-              {/* SQL tabs */}
-              <div className="dv-sql-tabs" role="tablist" aria-label="SQL tabs">
-                {sqlWorkspace.tabs.map((tab) => {
-                  const isActive = tab.id === activeSqlTab?.id;
-                  const isRenaming = tab.id === renamingTabId;
-                  return (
-                    <div key={tab.id} className={`dv-sql-tab ${isActive ? 'is-active' : ''}`}>
-                      <button
-                        role="tab"
-                        aria-selected={isActive}
-                        className="dv-sql-tab-main"
-                        onClick={() => { setActiveView('sql'); setSqlWorkspace((c) => ({ ...c, activeTabId: tab.id })); }}
-                        onDoubleClick={() => startRenameTab(tab.id, tab.name)}
-                      >
-                        {isRenaming ? (
-                          <input
-                            className="dv-sql-tab-input"
-                            value={tabNameDraft}
-                            onChange={(e) => setTabNameDraft(e.target.value)}
-                            onBlur={commitRenameTab}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') { e.preventDefault(); commitRenameTab(); }
-                              if (e.key === 'Escape') { e.preventDefault(); setRenamingTabId(null); setTabNameDraft(''); }
-                            }}
-                            autoFocus
-                          />
-                        ) : (
-                          <span className="truncate">{tab.name}</span>
-                        )}
-                      </button>
-                      <button className="dv-sql-tab-close" onClick={(e) => { e.stopPropagation(); closeSqlTab(tab.id); }} title="Close tab">
-                        &times;
-                      </button>
-                    </div>
-                  );
-                })}
-                <button className="dv-sql-tab-add" onClick={createNewSqlTab} title="New SQL tab">+</button>
-              </div>
-
-              {/* Monaco editor */}
-              <div className="dv-editor-shell">
-                <Editor
-                  height="180px"
-                  defaultLanguage="sql"
-                  value={activeSqlTab?.query ?? ''}
-                  onChange={(v) => updateActiveTabQuery(v ?? '')}
-                  theme="vs-dark"
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 13,
-                    scrollBeyondLastLine: false,
-                    suggestOnTriggerCharacters: true,
-                    quickSuggestions: true,
-                  }}
-                  onMount={(editor, monaco) => {
-                    editorRef.current = editor;
-                    monacoRef.current = monaco;
-                    setEditorReady(true);
-                    if (editor.getValue() !== (activeSqlTab?.query ?? '')) editor.setValue(activeSqlTab?.query ?? '');
-                    editor.focus();
-                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => { void executeQuery(); });
-                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => { closeSqlTab(); });
-                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => { void runExplain(); });
-                    registerAutocomplete(monaco);
-                  }}
-                />
-              </div>
-
-              {executing && <p className="dv-state-text">Executing query...</p>}
-              {resultError && <p className="dv-state-text text-danger">{resultError}</p>}
-              {exportState.status !== 'idle' && (
-                <p className={`dv-state-text ${exportState.status === 'failed' ? 'text-danger' : ''}`}>
-                  Export {exportState.status} &middot; {exportState.rowCount.toLocaleString()} rows &middot;{' '}
-                  {exportState.bytesWritten.toLocaleString()} bytes
-                  {exportState.partialSaved ? ' · partial data' : ''}
-                  {exportState.message ? ` · ${exportState.message}` : ''}
-                </p>
-              )}
-              {result && (
-                <p className="text-xs text-subtle">
-                  {result.rowCount.toLocaleString()} rows &middot; {result.elapsedMs}ms
-                </p>
-              )}
-              </section>
-
-              <div className="dv-sql-splitter" role="separator" aria-orientation="horizontal" onMouseDown={startSqlSplitResize} />
-
-              <section className="dv-card dv-card-pad dv-sql-results-pane">
-                <div className="dv-pane-header">
-                  <div className="dv-section-head">
-                    <h3 className="dv-section-title">Results</h3>
-                    <p className="dv-section-meta">Output stays visible while query details update at right.</p>
+              <div
+                className="dv-sql-split"
+                ref={sqlSplitShellRef}
+                style={{
+                  gridTemplateRows: `minmax(260px, ${sqlSplitRatio * 100}%) 10px minmax(180px, ${(1 - sqlSplitRatio) * 100}%)`,
+                }}
+              >
+                <section className="dv-query-section" aria-label="SQL query editor">
+                  {/* SQL tabs */}
+                  <div className="dv-sql-tabs" role="tablist" aria-label="SQL tabs">
+                    {sqlWorkspace.tabs.map((tab) => {
+                      const isActive = tab.id === activeSqlTab?.id;
+                      const isRenaming = tab.id === renamingTabId;
+                      return (
+                        <div key={tab.id} className={`dv-sql-tab ${isActive ? 'is-active' : ''}`}>
+                          <button
+                            role="tab"
+                            aria-selected={isActive}
+                            className="dv-sql-tab-main"
+                            onClick={() => { setActiveView('sql'); setSqlWorkspace((c) => ({ ...c, activeTabId: tab.id })); }}
+                            onDoubleClick={() => startRenameTab(tab.id, tab.name)}
+                          >
+                            {isRenaming ? (
+                              <input
+                                className="dv-sql-tab-input"
+                                value={tabNameDraft}
+                                onChange={(e) => setTabNameDraft(e.target.value)}
+                                onBlur={commitRenameTab}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') { e.preventDefault(); commitRenameTab(); }
+                                  if (e.key === 'Escape') { e.preventDefault(); setRenamingTabId(null); setTabNameDraft(''); }
+                                }}
+                                autoFocus
+                              />
+                            ) : (
+                              <span className="truncate">{tab.name}</span>
+                            )}
+                          </button>
+                          <button className="dv-sql-tab-close" onClick={(e) => { e.stopPropagation(); closeSqlTab(tab.id); }} title="Close tab">
+                            &times;
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <button className="dv-sql-tab-add" onClick={createNewSqlTab} title="New SQL tab">+</button>
                   </div>
-                </div>
-                <QueryResultDisplay
-                  executing={executing}
-                  resultError={resultError}
-                  result={result}
-                  emptyMessage="Run a query to view results."
-                  onOpenJsonCell={(value, column, rowIndex) => setJsonCellModal({ value, column, rowIndex })}
-                />
-              </section>
-            </div>
+
+                  {/* Monaco editor */}
+                  <div className="dv-editor-shell">
+                    <Editor
+                      height="180px"
+                      defaultLanguage="sql"
+                      value={activeSqlTab?.query ?? ''}
+                      onChange={(v) => updateActiveTabQuery(v ?? '')}
+                      theme="vs-dark"
+                      options={{
+                        minimap: { enabled: false },
+                        fontSize: 13,
+                        scrollBeyondLastLine: false,
+                        suggestOnTriggerCharacters: true,
+                        quickSuggestions: true,
+                      }}
+                      onMount={(editor, monaco) => {
+                        editorRef.current = editor;
+                        monacoRef.current = monaco;
+                        setEditorReady(true);
+                        if (editor.getValue() !== (activeSqlTab?.query ?? '')) editor.setValue(activeSqlTab?.query ?? '');
+                        editor.focus();
+                        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => { void executeQuery(); });
+                        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => { closeSqlTab(); });
+                        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => { void runExplain(); });
+                        registerAutocomplete(monaco);
+                      }}
+                    />
+                  </div>
+
+                  {executing && <p className="dv-state-text">Executing query...</p>}
+                  {resultError && <p className="dv-state-text text-danger">{resultError}</p>}
+                  {exportState.status !== 'idle' && (
+                    <p className={`dv-state-text ${exportState.status === 'failed' ? 'text-danger' : ''}`}>
+                      Export {exportState.status} &middot; {exportState.rowCount.toLocaleString()} rows &middot;{' '}
+                      {exportState.bytesWritten.toLocaleString()} bytes
+                      {exportState.partialSaved ? ' · partial data' : ''}
+                      {exportState.message ? ` · ${exportState.message}` : ''}
+                    </p>
+                  )}
+                  {result && (
+                    <p className="text-xs text-subtle">
+                      {result.rowCount.toLocaleString()} rows &middot; {result.elapsedMs}ms
+                    </p>
+                  )}
+                </section>
+
+                <div className="dv-sql-splitter" role="separator" aria-orientation="horizontal" onMouseDown={startSqlSplitResize} />
+
+                <section className="dv-sql-results-pane" aria-label="SQL query results">
+                  <div className="dv-pane-header">
+                    <div className="dv-section-head">
+                      <h3 className="dv-section-title">Results</h3>
+                      <p className="dv-section-meta">Output for the query above.</p>
+                    </div>
+                  </div>
+                  <QueryResultDisplay
+                    executing={executing}
+                    resultError={resultError}
+                    result={result}
+                    emptyMessage="Run the query above to view results."
+                    onOpenJsonCell={(value, column, rowIndex) => setJsonCellModal({ value, column, rowIndex })}
+                  />
+                </section>
+              </div>
+            </section>
 
             <SqlQueryInspector
               dbInfo={dbInfo}
@@ -2014,29 +2070,11 @@ export function App() {
               </div>
             </div>
 
-            {(executing || resultError || result) && (
-              <section className="dv-card dv-card-pad">
-                <div className="dv-query-toolbar">
-                  <div className="dv-section-head">
-                    <h3 className="dv-section-title">Latest SQL Result</h3>
-                    <p className="dv-section-meta">From SQL Query workspace</p>
-                  </div>
-                  <button className="dv-btn-ghost" onClick={selectSqlView}>Open SQL Query</button>
-                </div>
-                <QueryResultDisplay
-                  executing={executing}
-                  resultError={resultError}
-                  result={result}
-                  onOpenJsonCell={(value, column, rowIndex) => setJsonCellModal({ value, column, rowIndex })}
-                  />
-              </section>
-            )}
-
             <div className="dv-table-workbench">
               <section className="dv-card dv-card-pad dv-table-data-pane" aria-label="Table data">
                 <div className="dv-pane-header">
                   <div className="dv-section-head">
-                    <h3 className="dv-section-title">Data</h3>
+                    <h3 className="dv-section-title">{selectedTable ? `${selectedTable} Data` : 'Data'}</h3>
                     <p className="dv-section-meta">Rows stay visible while inspecting columns and keys.</p>
                   </div>
                 </div>
@@ -2110,6 +2148,7 @@ export function App() {
                       fkMap={foreignKeyMap}
                       onFkNavigate={navigateToFk}
                       onOpenJsonCell={(value, column, rowIndex) => setJsonCellModal({ value, column, rowIndex })}
+                      onSelectedRowChange={setSelectedTableRow}
                     />
 
                     {/* Pagination */}
@@ -2172,7 +2211,7 @@ export function App() {
               <aside className="dv-card dv-card-pad dv-object-details" aria-label="Table structure and details">
                 <div className="dv-pane-header">
                   <div className="dv-section-head">
-                    <h3 className="dv-section-title">Structure</h3>
+                    <h3 className="dv-section-title">{selectedTable ? `${selectedTable} Structure` : 'Structure'}</h3>
                     <p className="dv-section-meta">Columns, keys, and indexes for {selectedTable || 'the selected object'}.</p>
                   </div>
                 </div>
@@ -2183,7 +2222,15 @@ export function App() {
                 ) : structureError ? (
                   <p className="text-danger text-sm">{structureError}</p>
                 ) : structure ? (
-                  <ObjectDetailsPanel structure={structure} />
+                  <ObjectDetailsPanel
+                    structure={structure}
+                    relationships={relationships}
+                    relationshipsLoading={relationshipsLoading}
+                    relationshipsError={relationshipsError}
+                    selectedRow={selectedTableRow}
+                    onNavigateRelationship={navigateRelationship}
+                    onOpenJoinQuery={openRelationshipJoinQuery}
+                  />
                 ) : (
                   <p className="dv-empty">No structure loaded.</p>
                 )}
@@ -2358,6 +2405,7 @@ function DataTable({
   fkMap,
   onFkNavigate,
   onOpenJsonCell,
+  onSelectedRowChange,
 }: {
   rows: Record<string, unknown>[];
   rowCount?: number;
@@ -2375,6 +2423,7 @@ function DataTable({
   fkMap?: Map<string, { table: string; column: string }>;
   onFkNavigate?: (table: string, column: string, value: unknown) => void;
   onOpenJsonCell?: (value: unknown, column: string, rowIndex: number) => void;
+  onSelectedRowChange?: (row: Record<string, unknown> | null) => void;
 }) {
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
@@ -2400,6 +2449,17 @@ function DataTable({
       document.body.classList.remove('dv-col-resizing');
     };
   }, []);
+
+  useEffect(() => {
+    if (selectedRowIndex !== null && !rows[selectedRowIndex]) {
+      setSelectedRowIndex(null);
+      onSelectedRowChange?.(null);
+    }
+  }, [onSelectedRowChange, rows, selectedRowIndex]);
+
+  useEffect(() => {
+    onSelectedRowChange?.(selectedRowIndex === null ? null : rows[selectedRowIndex] ?? null);
+  }, [onSelectedRowChange, rows, selectedRowIndex]);
 
   if (!rows?.length) return <p className="dv-empty">No rows</p>;
   const columns = Object.keys(rows[0] ?? {});
@@ -2591,7 +2651,23 @@ function DataTable({
   );
 }
 
-function ObjectDetailsPanel({ structure }: { structure: TableStructureInfo }) {
+function ObjectDetailsPanel({
+  structure,
+  relationships,
+  relationshipsLoading,
+  relationshipsError,
+  selectedRow,
+  onNavigateRelationship,
+  onOpenJoinQuery,
+}: {
+  structure: TableStructureInfo;
+  relationships: TableRelationships | null;
+  relationshipsLoading: boolean;
+  relationshipsError: string | null;
+  selectedRow: Record<string, unknown> | null;
+  onNavigateRelationship: (relationship: RelationshipInfo) => void;
+  onOpenJoinQuery: (relationship: RelationshipInfo) => void;
+}) {
   const primaryKeys = new Set(structure.primaryKeys.map((pk) => pk.columnName));
   const foreignKeys = new Map(structure.foreignKeys.map((fk) => [fk.columnName, fk]));
 
@@ -2645,6 +2721,123 @@ function ObjectDetailsPanel({ structure }: { structure: TableStructureInfo }) {
           <p className="dv-empty">No indexes.</p>
         )}
       </section>
+
+      <RelationshipExplorer
+        relationships={relationships}
+        loading={relationshipsLoading}
+        error={relationshipsError}
+        selectedRow={selectedRow}
+        onNavigate={onNavigateRelationship}
+        onOpenJoinQuery={onOpenJoinQuery}
+      />
+    </div>
+  );
+}
+
+function RelationshipExplorer({
+  relationships,
+  loading,
+  error,
+  selectedRow,
+  onNavigate,
+  onOpenJoinQuery,
+}: {
+  relationships: TableRelationships | null;
+  loading: boolean;
+  error: string | null;
+  selectedRow: Record<string, unknown> | null;
+  onNavigate: (relationship: RelationshipInfo) => void;
+  onOpenJoinQuery: (relationship: RelationshipInfo) => void;
+}) {
+  const outbound = relationships?.outbound ?? [];
+  const inbound = relationships?.inbound ?? [];
+
+  return (
+    <section>
+      <div className="dv-query-toolbar">
+        <div>
+          <h4 className="dv-object-detail-title">Relationships</h4>
+          <p className="dv-section-meta">Outbound {outbound.length} &middot; Inbound {inbound.length}</p>
+        </div>
+      </div>
+      {loading ? (
+        <p className="dv-empty dv-empty-tight">Loading relationships...</p>
+      ) : error ? (
+        <p className="text-danger text-sm">{error}</p>
+      ) : outbound.length || inbound.length ? (
+        <div className="dv-relationship-stack">
+          <RelationshipList
+            title="This table references"
+            relationships={outbound}
+            selectedRow={selectedRow}
+            valueColumn="sourceColumn"
+            onNavigate={onNavigate}
+            onOpenJoinQuery={onOpenJoinQuery}
+          />
+          <RelationshipList
+            title="Referenced by"
+            relationships={inbound}
+            selectedRow={selectedRow}
+            valueColumn="targetColumn"
+            onNavigate={onNavigate}
+            onOpenJoinQuery={onOpenJoinQuery}
+          />
+        </div>
+      ) : (
+        <p className="dv-empty dv-empty-tight">No relationships found.</p>
+      )}
+      {!selectedRow && (outbound.length || inbound.length) ? (
+        <p className="dv-section-meta">Select a row to make relationship navigation apply value filters.</p>
+      ) : null}
+    </section>
+  );
+}
+
+function RelationshipList({
+  title,
+  relationships,
+  selectedRow,
+  valueColumn,
+  onNavigate,
+  onOpenJoinQuery,
+}: {
+  title: string;
+  relationships: RelationshipInfo[];
+  selectedRow: Record<string, unknown> | null;
+  valueColumn: 'sourceColumn' | 'targetColumn';
+  onNavigate: (relationship: RelationshipInfo) => void;
+  onOpenJoinQuery: (relationship: RelationshipInfo) => void;
+}) {
+  if (!relationships.length) return null;
+
+  return (
+    <div className="dv-relationship-group">
+      <h5>{title}</h5>
+      {relationships.map((relationship, index) => {
+        const rowValue = selectedRow?.[relationship[valueColumn]];
+        const hasRowValue = rowValue !== null && rowValue !== undefined;
+        return (
+          <article className="dv-relationship-card" key={`${relationship.constraintName ?? 'relationship'}-${index}`}>
+            <button className="dv-relationship-path" onClick={() => onNavigate(relationship)}>
+              <span>{relationship.sourceTable}.{relationship.sourceColumn}</span>
+              <span>&rarr;</span>
+              <span>{relationship.targetTable}.{relationship.targetColumn}</span>
+            </button>
+            <div className="dv-relationship-meta">
+              {relationship.constraintName && <span>{relationship.constraintName}</span>}
+              {relationship.onDelete && <span>delete {relationship.onDelete}</span>}
+              {relationship.onUpdate && <span>update {relationship.onUpdate}</span>}
+              {hasRowValue && <span>value {formatCellValue(rowValue)}</span>}
+            </div>
+            <div className="dv-relationship-actions">
+              <button className="dv-btn-ghost dv-btn-sm" onClick={() => onNavigate(relationship)}>
+                {hasRowValue ? 'Open Filtered' : 'Open Table'}
+              </button>
+              <button className="dv-btn-ghost dv-btn-sm" onClick={() => onOpenJoinQuery(relationship)}>Open Join</button>
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }

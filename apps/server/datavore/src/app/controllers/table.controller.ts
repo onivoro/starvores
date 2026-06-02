@@ -14,7 +14,12 @@ export class TableController {
     return await this.tableService.getTableStructure(this.dataSource, tableName);
   }
 
-   @Get()
+  @Get('relationships')
+  async getRelationships(@Param('tableName') tableName: string) {
+    return await this.tableService.getTableRelationships(this.dataSource, tableName);
+  }
+
+  @Get()
   async get(@Param('tableName') tableName: string) {
     return await this.tableService.getTableData(this.dataSource, tableName);
   }

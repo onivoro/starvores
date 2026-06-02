@@ -153,4 +153,120 @@ describe('DatabaseSchemaService', () => {
       indices: [{ indexName: 'idx_session_account_id', columnName: 'account_id', isUnique: false }],
     });
   });
+
+  it('maps MySQL table relationships in both directions', async () => {
+    const query = jest.fn((sql: string, params: unknown[]) => {
+      expect(params).toEqual(['orders']);
+
+      if (sql.includes('kcu.table_name = ?')) {
+        return Promise.resolve([
+          {
+            constraint_name: 'fk_orders_customer_id',
+            source_table: 'orders',
+            source_column: 'customer_id',
+            target_table: 'customers',
+            target_column: 'id',
+            on_update: 'CASCADE',
+            on_delete: 'RESTRICT',
+          },
+        ]);
+      }
+      if (sql.includes('kcu.referenced_table_name = ?')) {
+        return Promise.resolve([
+          {
+            constraint_name: 'fk_order_items_order_id',
+            source_table: 'order_items',
+            source_column: 'order_id',
+            target_table: 'orders',
+            target_column: 'id',
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const relationships = await service.getTableRelationships(createDataSource('mysql', query), 'orders');
+
+    expect(relationships).toEqual({
+      table: 'orders',
+      outbound: [
+        {
+          constraintName: 'fk_orders_customer_id',
+          sourceTable: 'orders',
+          sourceColumn: 'customer_id',
+          targetTable: 'customers',
+          targetColumn: 'id',
+          onUpdate: 'CASCADE',
+          onDelete: 'RESTRICT',
+        },
+      ],
+      inbound: [
+        {
+          constraintName: 'fk_order_items_order_id',
+          sourceTable: 'order_items',
+          sourceColumn: 'order_id',
+          targetTable: 'orders',
+          targetColumn: 'id',
+          onUpdate: undefined,
+          onDelete: undefined,
+        },
+      ],
+    });
+  });
+
+  it('uses PostgreSQL information_schema for relationships', async () => {
+    const query = jest.fn().mockResolvedValue([]);
+
+    await service.getTableRelationships(createDataSource('postgres', query), 'orders');
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[0][0]).toContain("tc.constraint_type = 'FOREIGN KEY'");
+    expect(query.mock.calls[0][0]).toContain('tc.table_name = $1');
+    expect(query.mock.calls[1][0]).toContain('ccu.table_name = $1');
+  });
+
+  it('discovers SQLite inbound and outbound relationships using PRAGMA metadata', async () => {
+    const query = jest.fn((sql: string) => {
+      expect(sql).not.toContain('information_schema');
+
+      if (sql.includes('sqlite_master')) {
+        return Promise.resolve([{ table_name: 'orders' }, { table_name: 'customers' }, { table_name: 'order_items' }]);
+      }
+      if (sql.includes('PRAGMA foreign_key_list("orders")')) {
+        return Promise.resolve([{ id: 0, from: 'customer_id', table: 'customers', to: 'id', on_update: 'NO ACTION', on_delete: 'CASCADE' }]);
+      }
+      if (sql.includes('PRAGMA foreign_key_list("order_items")')) {
+        return Promise.resolve([{ id: 0, from: 'order_id', table: 'orders', to: 'id' }]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const relationships = await service.getTableRelationships(createDataSource('sqlite', query), 'orders');
+
+    expect(relationships).toEqual({
+      table: 'orders',
+      outbound: [
+        {
+          constraintName: 'fk_orders_customer_id_0',
+          sourceTable: 'orders',
+          sourceColumn: 'customer_id',
+          targetTable: 'customers',
+          targetColumn: 'id',
+          onUpdate: 'NO ACTION',
+          onDelete: 'CASCADE',
+        },
+      ],
+      inbound: [
+        {
+          constraintName: 'fk_order_items_order_id_0',
+          sourceTable: 'order_items',
+          sourceColumn: 'order_id',
+          targetTable: 'orders',
+          targetColumn: 'id',
+          onUpdate: undefined,
+          onDelete: undefined,
+        },
+      ],
+    });
+  });
 });

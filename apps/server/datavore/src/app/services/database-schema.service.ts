@@ -48,6 +48,22 @@ export interface TableStructureInfo {
   indices: IndexInfo[];
 }
 
+export interface RelationshipInfo {
+  constraintName?: string;
+  sourceTable: string;
+  sourceColumn: string;
+  targetTable: string;
+  targetColumn: string;
+  onUpdate?: string;
+  onDelete?: string;
+}
+
+export interface TableRelationships {
+  table: string;
+  outbound: RelationshipInfo[];
+  inbound: RelationshipInfo[];
+}
+
 export interface DatabaseInfo {
   type: string;
   isConnected: boolean;
@@ -193,6 +209,26 @@ export class DatabaseSchemaService {
       views: this.mapSchemaObjects(views),
       functions: this.mapSchemaObjects(functions),
       sequences: this.mapSchemaObjects(sequences),
+    };
+  }
+
+  async getTableRelationships(dataSource: DataSource, tableName: string): Promise<TableRelationships> {
+    const dbType = this.getDatabaseType(dataSource);
+    console.info(`Getting table relationships for: ${tableName} (database type: ${dbType})`);
+
+    if (dbType === 'sqlite') {
+      return this.getSqliteTableRelationships(dataSource, tableName);
+    }
+
+    const [outboundRows, inboundRows] = await Promise.all([
+      dataSource.query(this.getOutboundRelationshipsQuery(dbType), [tableName]),
+      dataSource.query(this.getInboundRelationshipsQuery(dbType), [tableName]),
+    ]);
+
+    return {
+      table: tableName,
+      outbound: outboundRows.map(row => this.mapRelationshipRow(row)),
+      inbound: inboundRows.map(row => this.mapRelationshipRow(row)),
     };
   }
 
@@ -390,6 +426,109 @@ export class DatabaseSchemaService {
     }
   }
 
+  private getOutboundRelationshipsQuery(dbType: string): string {
+    if (this.isMysqlFamily(dbType)) {
+      return `
+        SELECT
+          kcu.constraint_name,
+          kcu.table_name AS source_table,
+          kcu.column_name AS source_column,
+          kcu.referenced_table_name AS target_table,
+          kcu.referenced_column_name AS target_column,
+          rc.update_rule AS on_update,
+          rc.delete_rule AS on_delete
+        FROM information_schema.key_column_usage kcu
+        LEFT JOIN information_schema.referential_constraints rc
+          ON rc.constraint_schema = kcu.constraint_schema
+          AND rc.constraint_name = kcu.constraint_name
+        WHERE kcu.table_schema = DATABASE()
+          AND kcu.table_name = ?
+          AND kcu.referenced_table_name IS NOT NULL
+        ORDER BY kcu.constraint_name, kcu.ordinal_position
+      `;
+    }
+
+    if (dbType === 'postgres') {
+      return `
+        SELECT
+          tc.constraint_name,
+          kcu.table_name AS source_table,
+          kcu.column_name AS source_column,
+          ccu.table_name AS target_table,
+          ccu.column_name AS target_column,
+          rc.update_rule AS on_update,
+          rc.delete_rule AS on_delete
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = kcu.table_schema
+        JOIN information_schema.constraint_column_usage ccu
+          ON ccu.constraint_name = tc.constraint_name
+          AND ccu.table_schema = tc.table_schema
+        LEFT JOIN information_schema.referential_constraints rc
+          ON rc.constraint_name = tc.constraint_name
+          AND rc.constraint_schema = tc.constraint_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND tc.table_schema = 'public'
+          AND tc.table_name = $1
+        ORDER BY tc.constraint_name, kcu.ordinal_position
+      `;
+    }
+
+    return `SELECT '' AS source_table, '' AS source_column, '' AS target_table, '' AS target_column WHERE 1=0`;
+  }
+
+  private getInboundRelationshipsQuery(dbType: string): string {
+    if (this.isMysqlFamily(dbType)) {
+      return `
+        SELECT
+          kcu.constraint_name,
+          kcu.table_name AS source_table,
+          kcu.column_name AS source_column,
+          kcu.referenced_table_name AS target_table,
+          kcu.referenced_column_name AS target_column,
+          rc.update_rule AS on_update,
+          rc.delete_rule AS on_delete
+        FROM information_schema.key_column_usage kcu
+        LEFT JOIN information_schema.referential_constraints rc
+          ON rc.constraint_schema = kcu.constraint_schema
+          AND rc.constraint_name = kcu.constraint_name
+        WHERE kcu.table_schema = DATABASE()
+          AND kcu.referenced_table_name = ?
+        ORDER BY kcu.table_name, kcu.constraint_name, kcu.ordinal_position
+      `;
+    }
+
+    if (dbType === 'postgres') {
+      return `
+        SELECT
+          tc.constraint_name,
+          kcu.table_name AS source_table,
+          kcu.column_name AS source_column,
+          ccu.table_name AS target_table,
+          ccu.column_name AS target_column,
+          rc.update_rule AS on_update,
+          rc.delete_rule AS on_delete
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = kcu.table_schema
+        JOIN information_schema.constraint_column_usage ccu
+          ON ccu.constraint_name = tc.constraint_name
+          AND ccu.table_schema = tc.table_schema
+        LEFT JOIN information_schema.referential_constraints rc
+          ON rc.constraint_name = tc.constraint_name
+          AND rc.constraint_schema = tc.constraint_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND tc.table_schema = 'public'
+          AND ccu.table_name = $1
+        ORDER BY kcu.table_name, tc.constraint_name, kcu.ordinal_position
+      `;
+    }
+
+    return `SELECT '' AS source_table, '' AS source_column, '' AS target_table, '' AS target_column WHERE 1=0`;
+  }
+
   private getSchemaViewsQuery(dbType: string): string {
     if (this.isMysqlFamily(dbType)) {
       return `
@@ -501,6 +640,18 @@ export class DatabaseSchemaService {
     })).filter(item => item.name && item.schema);
   }
 
+  private mapRelationshipRow(row: Record<string, any>): RelationshipInfo {
+    return {
+      constraintName: this.getRowValue(row, 'constraint_name', 'CONSTRAINT_NAME'),
+      sourceTable: this.getRowValue(row, 'source_table', 'SOURCE_TABLE'),
+      sourceColumn: this.getRowValue(row, 'source_column', 'SOURCE_COLUMN'),
+      targetTable: this.getRowValue(row, 'target_table', 'TARGET_TABLE'),
+      targetColumn: this.getRowValue(row, 'target_column', 'TARGET_COLUMN'),
+      onUpdate: this.getRowValue(row, 'on_update', 'ON_UPDATE'),
+      onDelete: this.getRowValue(row, 'on_delete', 'ON_DELETE'),
+    };
+  }
+
   private getDatabaseType(dataSource: DataSource): string {
     return String(dataSource.options.type || '');
   }
@@ -561,6 +712,42 @@ export class DatabaseSchemaService {
         constraintName: `fk_${tableName}_${fk.from}_${fk.id ?? index}`,
       })),
       indices,
+    };
+  }
+
+  private async getSqliteTableRelationships(dataSource: DataSource, tableName: string): Promise<TableRelationships> {
+    const tables = await this.getTables(dataSource);
+    const outboundRows = await dataSource.query(`PRAGMA foreign_key_list(${this.escapeIdentifier('sqlite', tableName)})`);
+    const outbound = outboundRows.map((fk, index) => this.mapSqliteRelationship(tableName, fk, index));
+
+    const inboundGroups = await Promise.all(
+      tables
+        .filter(table => table.tableName !== tableName)
+        .map(async table => {
+          const rows = await dataSource.query(`PRAGMA foreign_key_list(${this.escapeIdentifier('sqlite', table.tableName)})`);
+          return rows
+            .filter(fk => fk.table === tableName)
+            .map((fk, index) => this.mapSqliteRelationship(table.tableName, fk, index));
+        }),
+    );
+
+    return {
+      table: tableName,
+      outbound,
+      inbound: inboundGroups.flat(),
+    };
+  }
+
+  private mapSqliteRelationship(sourceTable: string, fk: Record<string, any>, index: number): RelationshipInfo {
+    const sourceColumn = fk.from;
+    return {
+      constraintName: `fk_${sourceTable}_${sourceColumn}_${fk.id ?? index}`,
+      sourceTable,
+      sourceColumn,
+      targetTable: fk.table,
+      targetColumn: fk.to,
+      onUpdate: fk.on_update,
+      onDelete: fk.on_delete,
     };
   }
 }

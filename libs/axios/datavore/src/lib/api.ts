@@ -23,6 +23,22 @@ export interface TableStructureInfo {
   indices: Array<{ indexName: string; columnName: string; isUnique: boolean }>;
 }
 
+export interface RelationshipInfo {
+  constraintName?: string;
+  sourceTable: string;
+  sourceColumn: string;
+  targetTable: string;
+  targetColumn: string;
+  onUpdate?: string;
+  onDelete?: string;
+}
+
+export interface TableRelationships {
+  table: string;
+  outbound: RelationshipInfo[];
+  inbound: RelationshipInfo[];
+}
+
 export interface QueryResponse {
   rows: any[];
   rowCount: number;
@@ -75,6 +91,10 @@ export class DatavoreApi {
 
   getTableStructure(tableName: string) {
     return this.http.get<TableStructureInfo>(`/api/table/${encodeURIComponent(tableName)}/structure`);
+  }
+
+  getTableRelationships(tableName: string) {
+    return this.http.get<TableRelationships>(`/api/table/${encodeURIComponent(tableName)}/relationships`);
   }
 
   executeQuery(query: string, queryId?: string) {
