@@ -228,6 +228,17 @@ type ExportLimitMode = 'none' | '10k' | '100k' | 'custom';
 type SortState = { column: string; direction: 'asc' | 'desc' } | null;
 type SchemaObject = SchemaObjectInfo;
 type SidebarSchemaSection = 'tables' | 'views' | 'functions' | 'sequences';
+type SchemaSearchType = 'table' | 'column' | 'view' | 'function' | 'sequence';
+
+type SchemaSearchEntry = {
+  id: string;
+  type: SchemaSearchType;
+  name: string;
+  tableName?: string;
+  schema?: string;
+  dataType?: string;
+  searchable: string;
+};
 
 type CommandActionId =
   | 'open-sql-view'
@@ -260,6 +271,19 @@ type JsonataErrorInfo = {
   position?: number;
   token?: string;
   value?: string;
+};
+
+type JsonPathSuggestion = {
+  label: string;
+  jsonataPath: string;
+  jsonPath: string;
+};
+
+type JsonataPreviewColumn = {
+  id: string;
+  sourceColumn: string;
+  expression: string;
+  label: string;
 };
 
 type SidebarNavItem = {
@@ -312,6 +336,15 @@ export function App() {
   const [tablesLoading, setTablesLoading] = useState(true);
   const [tableFilter, setTableFilter] = useState('');
   const [pinnedTables, setPinnedTables] = useState<string[]>([]);
+  const [schemaSearchTypes, setSchemaSearchTypes] = useState<Record<SchemaSearchType, boolean>>({
+    table: true,
+    column: true,
+    view: true,
+    function: true,
+    sequence: true,
+  });
+  const [schemaIndexVersion, setSchemaIndexVersion] = useState(0);
+  const [schemaMetadataLoading, setSchemaMetadataLoading] = useState(false);
 
   /* ── Schema objects ── */
   const [schemaViews, setSchemaViews] = useState<SchemaObject[]>([]);
@@ -337,6 +370,7 @@ export function App() {
   const [relationshipsError, setRelationshipsError] = useState<string | null>(null);
   const [relationshipsLoading, setRelationshipsLoading] = useState(false);
   const [selectedTableRow, setSelectedTableRow] = useState<Record<string, unknown> | null>(null);
+  const [highlightedColumn, setHighlightedColumn] = useState<string | null>(null);
 
   /* ── Table browsing (sort/filter/pagination) ── */
   const [tableSort, setTableSort] = useState<SortState>(null);
@@ -422,6 +456,74 @@ export function App() {
     () => filteredTables.filter((table) => !pinnedTableSet.has(table.tableName)),
     [filteredTables, pinnedTableSet],
   );
+
+  const schemaSearchEntries = useMemo<SchemaSearchEntry[]>(() => {
+    const entries: SchemaSearchEntry[] = [];
+    tables.forEach((table) => {
+      entries.push({
+        id: `table:${table.tableName}`,
+        type: 'table',
+        name: table.tableName,
+        tableName: table.tableName,
+        searchable: `table ${table.tableName}`.toLowerCase(),
+      });
+      const structureForTable = structureCacheRef.current.get(table.tableName);
+      structureForTable?.columns.forEach((column) => {
+        entries.push({
+          id: `column:${table.tableName}.${column.columnName}`,
+          type: 'column',
+          name: column.columnName,
+          tableName: table.tableName,
+          dataType: column.dataType,
+          searchable: `column ${table.tableName} ${column.columnName} ${column.dataType}`.toLowerCase(),
+        });
+      });
+    });
+    schemaViews.forEach((view) => entries.push({
+      id: `view:${view.schema}.${view.name}`,
+      type: 'view',
+      name: view.name,
+      schema: view.schema,
+      tableName: view.name,
+      searchable: `view ${view.schema} ${view.name}`.toLowerCase(),
+    }));
+    schemaFunctions.forEach((fn, index) => entries.push({
+      id: `function:${fn.schema}.${fn.name}.${index}`,
+      type: 'function',
+      name: fn.name,
+      schema: fn.schema,
+      searchable: `function routine ${fn.schema} ${fn.name} ${fn.type ?? ''}`.toLowerCase(),
+    }));
+    schemaSequences.forEach((seq) => entries.push({
+      id: `sequence:${seq.schema}.${seq.name}`,
+      type: 'sequence',
+      name: seq.name,
+      schema: seq.schema,
+      searchable: `sequence ${seq.schema} ${seq.name}`.toLowerCase(),
+    }));
+    return entries;
+  }, [schemaFunctions, schemaIndexVersion, schemaSequences, schemaViews, tables]);
+
+  const schemaSearchResults = useMemo(() => {
+    const filter = tableFilter.trim().toLowerCase();
+    if (!filter) return [];
+    const terms = filter.split(/\s+/).filter(Boolean);
+    return schemaSearchEntries
+      .filter((entry) => schemaSearchTypes[entry.type] && terms.every((term) => entry.searchable.includes(term)))
+      .slice(0, 80);
+  }, [schemaSearchEntries, schemaSearchTypes, tableFilter]);
+
+  const groupedSchemaSearchResults = useMemo(() => {
+    const groups: Record<SchemaSearchType, SchemaSearchEntry[]> = {
+      table: [],
+      column: [],
+      view: [],
+      function: [],
+      sequence: [],
+    };
+    schemaSearchResults.forEach((entry) => groups[entry.type].push(entry));
+    return groups;
+  }, [schemaSearchResults]);
 
   const sidebarNavItems = useMemo<SidebarNavItem[]>(() => {
     const items: SidebarNavItem[] = [{ id: 'sql', type: 'sql' }];
@@ -510,15 +612,21 @@ export function App() {
   /* ── Eager schema preload ── */
 
   const preloadAllStructures = useCallback(async (tableList: TableInfo[]) => {
-    const batch = tableList.slice(0, 50); // preload up to 50 tables
-    const results = await Promise.allSettled(
-      batch.map((t) => api.getTableStructure(t.tableName)),
-    );
-    results.forEach((r, i) => {
-      if (r.status === 'fulfilled') {
-        structureCacheRef.current.set(batch[i].tableName, r.value.data);
-      }
-    });
+    const batchSize = 25;
+    setSchemaMetadataLoading(true);
+    for (let offset = 0; offset < tableList.length; offset += batchSize) {
+      const batch = tableList.slice(offset, offset + batchSize);
+      const results = await Promise.allSettled(
+        batch.map((t) => api.getTableStructure(t.tableName)),
+      );
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled') {
+          structureCacheRef.current.set(batch[i].tableName, r.value.data);
+        }
+      });
+      setSchemaIndexVersion((version) => version + 1);
+    }
+    setSchemaMetadataLoading(false);
   }, []);
 
   /* ── Init effects ── */
@@ -770,6 +878,7 @@ export function App() {
       if (structureResult.status === 'fulfilled') {
         setStructure(structureResult.value.data);
         structureCacheRef.current.set(tableName, structureResult.value.data);
+        setSchemaIndexVersion((version) => version + 1);
       } else {
         setStructureError(getErrorMessage(structureResult.reason, 'Failed to load table structure.'));
       }
@@ -1204,6 +1313,32 @@ export function App() {
     [updateActiveTabQuery],
   );
 
+  const openSchemaSearchEntry = useCallback(
+    (entry: SchemaSearchEntry) => {
+      if (entry.type === 'table' || entry.type === 'view') {
+        setHighlightedColumn(null);
+        void selectTable(entry.tableName ?? entry.name);
+        return;
+      }
+      if (entry.type === 'column' && entry.tableName) {
+        setHighlightedColumn(entry.name);
+        setFilterBarOpen(true);
+        void selectTable(entry.tableName).then(() => setHighlightedColumn(entry.name));
+        return;
+      }
+      if (entry.type === 'function') {
+        const prefix = entry.schema && entry.schema !== 'public' ? `${quoteIdentifier(entry.schema)}.` : '';
+        loadQueryIntoEditor(`SELECT * FROM ${prefix}${quoteIdentifier(entry.name)}()`);
+        return;
+      }
+      if (entry.type === 'sequence') {
+        const prefix = entry.schema && entry.schema !== 'public' ? `${quoteIdentifier(entry.schema)}.` : '';
+        loadQueryIntoEditor(`SELECT * FROM ${prefix}${quoteIdentifier(entry.name)}`);
+      }
+    },
+    [loadQueryIntoEditor, selectTable],
+  );
+
   /* ── History ── */
 
   const rerunFromHistory = useCallback(
@@ -1585,8 +1720,68 @@ export function App() {
           </button>
         </div>
 
+        <div className="dv-schema-search">
+          <div className="dv-sidebar-filter-row">
+            <label className="dv-sidebar-search-label" htmlFor="schema-search">Schema Search</label>
+            <p className="dv-section-meta">
+              {tableFilter.trim() ? `${schemaSearchResults.length} result${schemaSearchResults.length === 1 ? '' : 's'}` : `${tables.length} tables`}
+            </p>
+          </div>
+          <div className="dv-sidebar-filter-input-row">
+            <input
+              id="schema-search"
+              ref={tableFilterInputRef}
+              className="dv-input"
+              value={tableFilter}
+              onChange={(e) => setTableFilter(e.target.value)}
+              placeholder="Search tables, columns, views..."
+            />
+            {tableFilter.trim() && (
+              <button className="dv-btn-ghost dv-btn-sm" onClick={() => setTableFilter('')}>Clear</button>
+            )}
+          </div>
+          <div className="dv-schema-type-filters" aria-label="Schema search type filters">
+            {(['table', 'column', 'view', 'function', 'sequence'] as SchemaSearchType[]).map((type) => (
+              <button
+                key={type}
+                className={`dv-schema-type-chip ${schemaSearchTypes[type] ? 'is-active' : ''}`}
+                onClick={() => setSchemaSearchTypes((current) => ({ ...current, [type]: !current[type] }))}
+              >
+                {type === 'function' ? 'Routines' : `${type.charAt(0).toUpperCase()}${type.slice(1)}s`}
+              </button>
+            ))}
+          </div>
+          {tableFilter.trim() && (
+            <div className="dv-schema-search-results" role="listbox" aria-label="Schema search results">
+              {schemaSearchResults.length ? (
+                (['table', 'column', 'view', 'function', 'sequence'] as SchemaSearchType[]).map((type) => {
+                  const entries = groupedSchemaSearchResults[type];
+                  if (!entries.length) return null;
+                  return (
+                    <div className="dv-schema-search-group" key={type}>
+                      <p className="dv-section-meta">{type === 'function' ? 'Routines' : `${type.charAt(0).toUpperCase()}${type.slice(1)}s`} ({entries.length})</p>
+                      {entries.map((entry) => (
+                        <button key={entry.id} className="dv-schema-search-result" onClick={() => openSchemaSearchEntry(entry)}>
+                          <span className="dv-schema-icon">{entry.type === 'column' ? 'C' : entry.type.charAt(0).toUpperCase()}</span>
+                          <span>
+                            <strong>{entry.type === 'column' && entry.tableName ? `${entry.tableName}.${entry.name}` : entry.name}</strong>
+                            <small>{entry.type}{entry.dataType ? ` · ${entry.dataType}` : entry.schema ? ` · ${entry.schema}` : ''}</small>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="dv-empty dv-empty-tight">No schema results.</p>
+              )}
+              {schemaMetadataLoading && <p className="dv-section-meta">Loading column metadata...</p>}
+            </div>
+          )}
+        </div>
+
         {/* Schema sections */}
-        <div className="space-y-1">
+        {!tableFilter.trim() && <div className="space-y-1">
           {/* Tables section */}
           <button className={`dv-schema-toggle ${expandedSections.tables ? 'is-active' : ''}`} onClick={() => toggleSection('tables')}>
             <span>
@@ -1598,23 +1793,10 @@ export function App() {
           {expandedSections.tables && (
             <div className="dv-schema-items">
               <div className="dv-sidebar-filter-row">
-                <label className="dv-sidebar-search-label" htmlFor="table-search">Filter</label>
+                <span className="dv-sidebar-search-label">Visible</span>
                 <p className="dv-section-meta">
                   {filteredTables.length} match{filteredTables.length === 1 ? '' : 'es'}
                 </p>
-              </div>
-              <div className="dv-sidebar-filter-input-row">
-                <input
-                  id="table-search"
-                  ref={tableFilterInputRef}
-                  className="dv-input"
-                  value={tableFilter}
-                  onChange={(e) => setTableFilter(e.target.value)}
-                  placeholder="Search tables..."
-                />
-                {tableFilter.trim() && (
-                  <button className="dv-btn-ghost dv-btn-sm" onClick={() => setTableFilter('')}>Clear</button>
-                )}
               </div>
 
               {tablesLoading && <p className="dv-empty">Loading tables...</p>}
@@ -1768,7 +1950,7 @@ export function App() {
               )}
             </div>
           )}
-        </div>
+        </div>}
       </aside>
 
       {/* ── Main ── */}
@@ -2149,6 +2331,7 @@ export function App() {
                       onFkNavigate={navigateToFk}
                       onOpenJsonCell={(value, column, rowIndex) => setJsonCellModal({ value, column, rowIndex })}
                       onSelectedRowChange={setSelectedTableRow}
+                      previewScopeKey={selectedTable}
                     />
 
                     {/* Pagination */}
@@ -2228,6 +2411,7 @@ export function App() {
                     relationshipsLoading={relationshipsLoading}
                     relationshipsError={relationshipsError}
                     selectedRow={selectedTableRow}
+                    highlightedColumn={highlightedColumn}
                     onNavigateRelationship={navigateRelationship}
                     onOpenJoinQuery={openRelationshipJoinQuery}
                   />
@@ -2406,6 +2590,7 @@ function DataTable({
   onFkNavigate,
   onOpenJsonCell,
   onSelectedRowChange,
+  previewScopeKey,
 }: {
   rows: Record<string, unknown>[];
   rowCount?: number;
@@ -2424,10 +2609,15 @@ function DataTable({
   onFkNavigate?: (table: string, column: string, value: unknown) => void;
   onOpenJsonCell?: (value: unknown, column: string, rowIndex: number) => void;
   onSelectedRowChange?: (row: Record<string, unknown> | null) => void;
+  previewScopeKey?: string;
 }) {
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [clientSort, setClientSort] = useState<SortState>(null);
+  const [expandedJsonFields, setExpandedJsonFields] = useState<Set<string>>(new Set());
+  const [jsonataDrafts, setJsonataDrafts] = useState<Record<string, string>>({});
+  const [jsonataPreviewColumns, setJsonataPreviewColumns] = useState<JsonataPreviewColumn[]>([]);
+  const [jsonataPreviewValues, setJsonataPreviewValues] = useState<Record<string, string>>({});
   const resizingRef = useRef<{ key: string; startX: number; startWidth: number } | null>(null);
 
   useEffect(() => {
@@ -2461,8 +2651,34 @@ function DataTable({
     onSelectedRowChange?.(selectedRowIndex === null ? null : rows[selectedRowIndex] ?? null);
   }, [onSelectedRowChange, rows, selectedRowIndex]);
 
-  if (!rows?.length) return <p className="dv-empty">No rows</p>;
+  useEffect(() => {
+    setJsonataPreviewColumns([]);
+    setJsonataPreviewValues({});
+    setExpandedJsonFields(new Set());
+    setJsonataDrafts({});
+  }, [previewScopeKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const evaluatePreviewColumns = async () => {
+      const nextValues: Record<string, string> = {};
+      await Promise.all(jsonataPreviewColumns.flatMap((previewColumn) => rows.map(async (row, rowIndex) => {
+        const sourceJson = getJsonCellValue(row[previewColumn.sourceColumn]);
+        if (!sourceJson) {
+          nextValues[`${previewColumn.id}:${rowIndex}`] = 'NULL';
+          return;
+        }
+        const result = await evaluateJsonataPreview(sourceJson, previewColumn.expression);
+        nextValues[`${previewColumn.id}:${rowIndex}`] = result.error ? `Error: ${result.error.message}` : result.output;
+      })));
+      if (!cancelled) setJsonataPreviewValues(nextValues);
+    };
+    void evaluatePreviewColumns();
+    return () => { cancelled = true; };
+  }, [jsonataPreviewColumns, rows]);
+
   const columns = Object.keys(rows[0] ?? {});
+  const renderedColumns = [...columns, ...jsonataPreviewColumns.map((column) => column.label)];
   const totalRows = rowCount ?? rows.length;
   const selectedRow = selectedRowIndex === null ? null : rows[selectedRowIndex] ?? null;
 
@@ -2486,6 +2702,8 @@ function DataTable({
     return sorted;
   }, [rows, clientSort, onServerSort]);
 
+  if (!rows?.length) return <p className="dv-empty">No rows</p>;
+
   const handleSort = (column: string) => {
     if (!sortable) return;
     if (onServerSort) {
@@ -2505,10 +2723,26 @@ function DataTable({
     return <span className="dv-sort-indicator">{activeSort.direction === 'asc' ? '▲' : '▼'}</span>;
   };
 
+  const addJsonataPreviewColumn = (sourceColumn: string, expression: string) => {
+    const trimmedExpression = expression.trim() || '$';
+    setJsonataPreviewColumns((current) => [
+      ...current,
+      {
+        id: `${sourceColumn}:${trimmedExpression}:${Date.now()}`,
+        sourceColumn,
+        expression: trimmedExpression,
+        label: `${sourceColumn} ${trimmedExpression}`,
+      },
+    ]);
+  };
+
   return (
     <div className="dv-table-shell" data-density="compact">
       <div className="dv-table-status">
-        <span>{totalRows.toLocaleString()} rows &middot; {columns.length} columns</span>
+        <span>{totalRows.toLocaleString()} rows &middot; {columns.length} columns{jsonataPreviewColumns.length ? ` · ${jsonataPreviewColumns.length} preview` : ''}</span>
+        {jsonataPreviewColumns.length > 0 && (
+          <button className="dv-btn-ghost dv-btn-sm" onClick={() => setJsonataPreviewColumns([])}>Clear Previews</button>
+        )}
         {editable && selectedRowIndex !== null && onDeleteRow && (
           <button className="dv-btn-danger dv-btn-sm" onClick={() => void onDeleteRow(selectedRowIndex)}>
             Delete Row
@@ -2521,12 +2755,14 @@ function DataTable({
             <thead>
               <tr>
                 <th className="dv-table-index">#</th>
-                {columns.map((column) => (
+                {renderedColumns.map((column) => {
+                  const isPreviewColumn = !columns.includes(column);
+                  return (
                   <th
                     key={column}
-                    className={`text-left ${sortable ? 'dv-th-sortable' : ''}`}
+                    className={`text-left ${sortable && !isPreviewColumn ? 'dv-th-sortable' : ''}`}
                     style={columnWidths[column] ? { width: `${columnWidths[column]}px` } : undefined}
-                    onClick={() => handleSort(column)}
+                    onClick={() => { if (!isPreviewColumn) handleSort(column); }}
                   >
                     <div className="dv-th-content">
                       <span>{column}{getSortIndicator(column)}</span>
@@ -2542,7 +2778,8 @@ function DataTable({
                       />
                     </div>
                   </th>
-                ))}
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -2555,12 +2792,15 @@ function DataTable({
                     onClick={() => setSelectedRowIndex(idx)}
                   >
                     <td className="dv-table-index">{idx + 1}</td>
-                    {columns.map((column) => {
+                    {renderedColumns.map((column) => {
+                      const previewColumn = jsonataPreviewColumns.find((preview) => preview.label === column);
                       const isEditing = editable && editingCell?.rowIndex === idx && editingCell?.column === column;
                       const fk = fkMap?.get(column);
-                      const cellValue = row[column];
+                      const cellValue = previewColumn
+                        ? jsonataPreviewValues[`${previewColumn.id}:${idx}`] ?? '...'
+                        : row[column];
 
-                      if (isEditing) {
+                      if (!previewColumn && isEditing) {
                         return (
                           <td key={column} className="dv-cell-edited" style={columnWidths[column] ? { width: `${columnWidths[column]}px` } : undefined}>
                             <input
@@ -2599,7 +2839,9 @@ function DataTable({
                             if (editable) onStartEdit?.(idx, column);
                           }}
                         >
-                          {fk && cellValue !== null && cellValue !== undefined && onFkNavigate ? (
+                          {previewColumn ? (
+                            <span className="dv-jsonata-preview-cell">{String(cellValue ?? '')}</span>
+                          ) : fk && cellValue !== null && cellValue !== undefined && onFkNavigate ? (
                             <span className="dv-fk-link" onClick={(e) => { e.stopPropagation(); onFkNavigate(fk.table, fk.column, cellValue); }}>
                               {renderCell(cellValue, column, idx, onOpenJsonCell)}
                             </span>
@@ -2632,13 +2874,32 @@ function DataTable({
                   <div key={column} className="dv-row-drawer-item">
                     <dt>{column} {fk && <span className="text-accent text-xs">FK → {fk.table}</span>}</dt>
                     <dd>
-                          {fk && val !== null && val !== undefined && onFkNavigate ? (
-                            <span className="dv-fk-link" onClick={() => onFkNavigate(fk.table, fk.column, val)}>
-                              {renderCell(val, column, selectedRowIndex ?? 0, onOpenJsonCell)}
-                            </span>
-                          ) : (
-                            renderCell(val, column, selectedRowIndex ?? 0, onOpenJsonCell)
-                          )}
+                      {getJsonCellValue(val) ? (
+                        <JsonDrawerTools
+                          value={val}
+                          column={column}
+                          rowIndex={selectedRowIndex ?? 0}
+                          expanded={expandedJsonFields.has(`${selectedRowIndex ?? 0}:${column}`)}
+                          expression={jsonataDrafts[column] ?? '$'}
+                          onToggleExpanded={() => {
+                            const key = `${selectedRowIndex ?? 0}:${column}`;
+                            setExpandedJsonFields((current) => {
+                              const next = new Set(current);
+                              if (next.has(key)) next.delete(key); else next.add(key);
+                              return next;
+                            });
+                          }}
+                          onExpressionChange={(expression) => setJsonataDrafts((current) => ({ ...current, [column]: expression }))}
+                          onOpenJsonCell={onOpenJsonCell}
+                          onAddPreviewColumn={addJsonataPreviewColumn}
+                        />
+                      ) : fk && val !== null && val !== undefined && onFkNavigate ? (
+                        <span className="dv-fk-link" onClick={() => onFkNavigate(fk.table, fk.column, val)}>
+                          {renderCell(val, column, selectedRowIndex ?? 0, onOpenJsonCell)}
+                        </span>
+                      ) : (
+                        renderCell(val, column, selectedRowIndex ?? 0, onOpenJsonCell)
+                      )}
                     </dd>
                   </div>
                 );
@@ -2651,12 +2912,96 @@ function DataTable({
   );
 }
 
+function JsonDrawerTools({
+  value,
+  column,
+  rowIndex,
+  expanded,
+  expression,
+  onToggleExpanded,
+  onExpressionChange,
+  onOpenJsonCell,
+  onAddPreviewColumn,
+}: {
+  value: unknown;
+  column: string;
+  rowIndex: number;
+  expanded: boolean;
+  expression: string;
+  onToggleExpanded: () => void;
+  onExpressionChange: (expression: string) => void;
+  onOpenJsonCell?: (value: unknown, column: string, rowIndex: number) => void;
+  onAddPreviewColumn: (column: string, expression: string) => void;
+}) {
+  const jsonValue = getJsonCellValue(value) ?? value;
+  const [preview, setPreview] = useState<{ output: string; error?: JsonataErrorInfo }>({ output: formatJson(jsonValue) });
+  const pathSuggestions = useMemo(() => getJsonPathSuggestions(jsonValue).slice(0, 24), [jsonValue]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const evaluate = async () => {
+      const result = await evaluateJsonataPreview(jsonValue, expression);
+      if (!cancelled) setPreview(result);
+    };
+    void evaluate();
+    return () => { cancelled = true; };
+  }, [expression, jsonValue]);
+
+  const label = Array.isArray(jsonValue) ? `JSON array (${jsonValue.length})` : 'JSON object';
+
+  return (
+    <div className="dv-json-drawer-tools">
+      <div className="dv-json-drawer-actions">
+        <span className="dv-key-pill">{label}</span>
+        <button className="dv-btn-ghost dv-btn-sm" onClick={onToggleExpanded}>{expanded ? 'Collapse' : 'Expand'}</button>
+        {onOpenJsonCell && (
+          <button className="dv-btn-ghost dv-btn-sm" onClick={() => onOpenJsonCell(jsonValue, column, rowIndex)}>JSONata Modal</button>
+        )}
+      </div>
+      {expanded && (
+        <>
+          <pre className="dv-json-preview-pre">{formatJson(jsonValue)}</pre>
+          {pathSuggestions.length > 0 && (
+            <div className="dv-json-path-list">
+              <span className="dv-section-meta">Copy path</span>
+              {pathSuggestions.map((path) => (
+                <button
+                  key={`${path.jsonataPath}-${path.jsonPath}`}
+                  className="dv-json-path-chip"
+                  title={`Copy JSONPath ${path.jsonPath}`}
+                  onClick={() => void navigator.clipboard.writeText(path.jsonataPath)}
+                >
+                  {path.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <div className="dv-jsonata-inline">
+        <input
+          className="dv-input"
+          value={expression}
+          onChange={(event) => onExpressionChange(event.target.value)}
+          placeholder="JSONata expression"
+          spellCheck={false}
+        />
+        <button className="dv-btn-ghost dv-btn-sm" onClick={() => onAddPreviewColumn(column, expression)}>Add Preview Column</button>
+      </div>
+      <pre className={`dv-jsonata-inline-output ${preview.error ? 'text-danger' : ''}`}>
+        {preview.error ? preview.error.message : preview.output}
+      </pre>
+    </div>
+  );
+}
+
 function ObjectDetailsPanel({
   structure,
   relationships,
   relationshipsLoading,
   relationshipsError,
   selectedRow,
+  highlightedColumn,
   onNavigateRelationship,
   onOpenJoinQuery,
 }: {
@@ -2665,6 +3010,7 @@ function ObjectDetailsPanel({
   relationshipsLoading: boolean;
   relationshipsError: string | null;
   selectedRow: Record<string, unknown> | null;
+  highlightedColumn: string | null;
   onNavigateRelationship: (relationship: RelationshipInfo) => void;
   onOpenJoinQuery: (relationship: RelationshipInfo) => void;
 }) {
@@ -2686,7 +3032,7 @@ function ObjectDetailsPanel({
           {structure.columns.map((column) => {
             const foreignKey = foreignKeys.get(column.columnName);
             return (
-              <div className="dv-object-column" key={column.columnName} role="listitem">
+                <div className={`dv-object-column ${highlightedColumn === column.columnName ? 'is-highlighted' : ''}`} key={column.columnName} role="listitem">
                 <div className="dv-object-column-main">
                   <span className="dv-object-column-name">{column.columnName}</span>
                   <span className="dv-object-column-type">{column.dataType}</span>
@@ -2866,7 +3212,8 @@ function getJsonCellValue(value: unknown): unknown | null {
 
 function formatJson(value: unknown): string {
   try {
-    return JSON.stringify(value, null, 2);
+    const formatted = JSON.stringify(value, null, 2);
+    return formatted === undefined ? String(value) : formatted;
   } catch {
     return String(value);
   }
@@ -2887,6 +3234,59 @@ function formatJsonataError(err: unknown): JsonataErrorInfo {
     token: typeof details.token === 'string' ? details.token : undefined,
     value: details.value === undefined ? undefined : formatJson(details.value),
   };
+}
+
+function toJsonPathKey(key: string): string {
+  return /^[A-Za-z_$][\w$]*$/.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`;
+}
+
+function toJsonataPathKey(key: string): string {
+  return /^[A-Za-z_$][\w$]*$/.test(key) ? `.${key}` : `.\`${key.replace(/`/g, '``')}\``;
+}
+
+function getJsonPathSuggestions(value: unknown): JsonPathSuggestion[] {
+  const suggestions: JsonPathSuggestion[] = [];
+  const addSuggestion = (label: string, jsonataPath: string, jsonPath: string) => {
+    suggestions.push({ label, jsonataPath, jsonPath });
+  };
+
+  if (Array.isArray(value)) {
+    value.slice(0, 20).forEach((item, index) => {
+      const arrayJsonataPath = `[${index}]`;
+      const arrayJsonPath = `$[${index}]`;
+      addSuggestion(arrayJsonataPath, arrayJsonataPath, arrayJsonPath);
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        Object.keys(item as Record<string, unknown>).slice(0, 8).forEach((key) => {
+          addSuggestion(`${arrayJsonataPath}${toJsonataPathKey(key)}`, `${arrayJsonataPath}${toJsonataPathKey(key)}`, `${arrayJsonPath}${toJsonPathKey(key)}`);
+        });
+      }
+    });
+    return suggestions;
+  }
+
+  if (value && typeof value === 'object') {
+    Object.entries(value as Record<string, unknown>).slice(0, 20).forEach(([key, nestedValue]) => {
+      const jsonataPath = key;
+      const jsonPath = `$${toJsonPathKey(key)}`;
+      addSuggestion(jsonataPath, jsonataPath, jsonPath);
+      if (nestedValue && typeof nestedValue === 'object' && !Array.isArray(nestedValue)) {
+        Object.keys(nestedValue as Record<string, unknown>).slice(0, 8).forEach((nestedKey) => {
+          addSuggestion(`${jsonataPath}${toJsonataPathKey(nestedKey)}`, `${jsonataPath}${toJsonataPathKey(nestedKey)}`, `${jsonPath}${toJsonPathKey(nestedKey)}`);
+        });
+      }
+    });
+  }
+
+  return suggestions;
+}
+
+async function evaluateJsonataPreview(value: unknown, expression: string): Promise<{ output: string; error?: JsonataErrorInfo }> {
+  try {
+    const result = await jsonata(expression || '$').evaluate(value);
+    return { output: formatJson(result) };
+  } catch (err) {
+    return { output: '', error: formatJsonataError(err) };
+  }
 }
 
 function renderCell(
