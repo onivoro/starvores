@@ -2961,7 +2961,7 @@ function JsonDrawerTools({
   onOpenJsonCell?: (value: unknown, column: string, rowIndex: number) => void;
   onAddPreviewColumn: (column: string, expression: string) => void;
 }) {
-  const jsonValue = getJsonCellValue(value) ?? value;
+  const jsonValue = useMemo(() => getJsonCellValue(value) ?? value, [value]);
   const [preview, setPreview] = useState<{ output: string; error?: JsonataErrorInfo }>({ output: formatJson(jsonValue) });
   const pathSuggestions = useMemo(() => getJsonPathSuggestions(jsonValue).slice(0, 24), [jsonValue]);
 
