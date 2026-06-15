@@ -929,6 +929,23 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
+  .dv-json-cell-preview {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .dv-json-cell-preview-text {
+    min-width: 80px;
+    max-width: min(360px, 52vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
   .dv-json-cell-btn {
     @apply rounded text-left;
     display: inline-flex;

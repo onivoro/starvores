@@ -3334,18 +3334,22 @@ function renderCell(
   const jsonValue = getJsonCellValue(value);
   if (jsonValue && column !== undefined && rowIndex !== undefined && onOpenJsonCell) {
     const label = Array.isArray(jsonValue) ? `JSON array (${jsonValue.length})` : 'JSON object';
+    const preview = formatJson(jsonValue).replace(/\s+/g, ' ').slice(0, 180);
     return (
-      <button
-        className="dv-json-cell-btn"
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpenJsonCell(jsonValue, column, rowIndex);
-        }}
-        title="Open JSONata editor"
-      >
-        <span>{label}</span>
-        <small>JSONata</small>
-      </button>
+      <span className="dv-json-cell-preview">
+        <span className="dv-json-cell-preview-text" title={formatJson(jsonValue)}>{preview}</span>
+        <button
+          className="dv-json-cell-btn"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenJsonCell(jsonValue, column, rowIndex);
+          }}
+          title="Open JSONata editor"
+        >
+          <span>{label}</span>
+          <small>JSONata</small>
+        </button>
+      </span>
     );
   }
   if (jsonValue) return formatJson(jsonValue);
